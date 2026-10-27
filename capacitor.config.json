@@ -1,0 +1,11 @@
+{
+  "appId": "local.almaandroid.app",
+  "appName": "Alma",
+  "webDir": "www",
+  "android": {
+    "allowMixedContent": false
+  },
+  "server": {
+    "androidScheme": "https"
+  }
+}

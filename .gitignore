@@ -1,0 +1,25 @@
+# Alma 官方 renderer 产物 —— 不入库（版权所有，构建时由 alma-re 再生）
+www/
+
+# Node
+node_modules/
+
+# Capacitor/Gradle 生成物
+android/.gradle/
+android/build/
+android/app/build/
+android/app/src/main/assets/public/
+android/capacitor-cordova-android-plugins/build/
+android/local.properties
+
+# IDE / 系统
+.DS_Store
+*.iml
+.idea/
+
+# 构建产物
+*.apk
+*.aab
+
+# npm 缓存
+.npm-cache/

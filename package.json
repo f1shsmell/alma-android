@@ -1,0 +1,23 @@
+{
+  "name": "alma-android",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Alma for Android — Capacitor 壳 + Alma 官方 renderer（与官方 iOS 端同构）",
+  "scripts": {
+    "assets": "bash scripts/sync-assets.sh",
+    "android": "cap sync android && cap open android",
+    "build:web": "echo 'www/ 直接使用 Alma 官方 renderer 产物，无需构建'"
+  },
+  "dependencies": {
+    "@capacitor/android": "^7.0.0",
+    "@capacitor/browser": "^7.0.0",
+    "@capacitor/clipboard": "^7.0.4",
+    "@capacitor/core": "^7.0.0",
+    "@capacitor/haptics": "^7.0.0",
+    "@capacitor/preferences": "^7.0.0",
+    "@capacitor/share": "^7.0.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^7.0.0"
+  }
+}
