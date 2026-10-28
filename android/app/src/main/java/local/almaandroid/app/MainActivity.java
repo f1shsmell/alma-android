@@ -44,4 +44,29 @@ public class MainActivity extends BridgeActivity {
             cameraPermission.launch(Manifest.permission.CAMERA);
         }
     }
+
+    /**
+     * 返回键：设置层为同文档 iframe（shim 管理，无页面导航），
+     * WebView 的历史栈不反映它的开合 —— 先问 JS 是否由设置层消化；
+     * 否则按 Capacitor 默认（Web 历史可回退则回退，否则默认行为）。
+     */
+    @Override
+    public void onBackPressed() {
+        WebView webView = getBridge() != null ? getBridge().getWebView() : null;
+        if (webView != null && !webView.canGoBack()) {
+            // evaluateJavascript 的回调在 UI 线程执行；JS 未消化则走默认返回行为
+            webView.evaluateJavascript(
+                "(window.__almaAndroidBack ? window.__almaAndroidBack() : false)",
+                new android.webkit.ValueCallback<String>() {
+                    @Override
+                    public void onReceiveValue(String value) {
+                        if (!"true".equals(value)) {
+                            MainActivity.super.onBackPressed();
+                        }
+                    }
+                });
+            return;
+        }
+        super.onBackPressed();
+    }
 }
