@@ -14442,7 +14442,7 @@ const settings = {
     unreachable: "{{host}} に到達できません。そこで Alma は起動していますか？",
     lanHint: "同じ Wi‑Fi なら Mac の LAN アドレスでも接続できます（例: http://192.168.1.20:23001）。",
     onboardingTitle: "Mac とペアリング",
-    onboardingDesc: "この iPhone は Mac で動く Alma を操作します。一度ペアリングすれば、すべてリレー経由でエンドツーエンド暗号化されます。"
+    onboardingDesc: "この端末 は Mac で動く Alma を操作します。一度ペアリングすれば、すべてリレー経由でエンドツーエンド暗号化されます。"
   },
   claudeSubscription: {
     tomorrowAt: "明日 {{time}}",

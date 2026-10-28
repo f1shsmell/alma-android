@@ -37,6 +37,26 @@
     }
   } catch (e) {}
 
+  // ── 语言：跟随系统 ────────────────────────────────────────────────
+  // i18next 检测顺序 localStorage → navigator，且结果永久缓存；而 Android WebView
+  // 的 navigator.language 长期不随系统语言（Capacitor 已知问题，常返 en-US）→
+  // 首启误检为英文后永不重检。原生侧提供权威 locale（__almaAndroidLang__ 由
+  // documentStart 脚本注入 / __almaAndroidLocale 由 JavascriptInterface 提供），
+  // 本 shim 在 i18next 模块执行前预置缓存键；用户在设置里手动选过语言
+  // （alma.android.lang.user 标记）后不再自动跟随。
+  try {
+    if (!localStorage.getItem("alma.android.lang.user")) {
+      var natLang = "";
+      try { natLang = String(window.__almaAndroidLang__ || ""); } catch (e) {}
+      if (!natLang && window.__almaAndroidLocale) {
+        try { natLang = String(window.__almaAndroidLocale.getLanguageTag()); } catch (e) {}
+      }
+      if (!natLang) natLang = (navigator.languages && navigator.languages[0]) || navigator.language || "en";
+      var nl = natLang.toLowerCase();
+      localStorage.setItem("i18nextLng", nl.indexOf("zh") === 0 ? "zh" : nl.indexOf("ja") === 0 ? "ja" : "en");
+    }
+  } catch (e) {}
+
   window.platform = window.platform || {
     get: function () { return Promise.resolve(PLATFORM); },
     windowControlsHidden: function () { return Promise.resolve(false); }
@@ -65,6 +85,27 @@
   var inSubframe = false;
   try { inSubframe = window.parent && window.parent !== window; } catch (e) {}
 
+  // ── 设置层（iframe）专属修复 ─────────────────────────────────────
+  if (inSubframe) {
+    // Capacitor 只注入主帧：iframe 里官方 Preferences/E2E 桥会退化到 web 实现
+    // （localStorage），而主帧经原生桥读写 SharedPreferences —— 两套存储裂脑：
+    // 配对写进 localStorage、主帧读原生 → 永远显示未配对（"扫码没反应"的根因）。
+    // 借用主帧的 Capacitor 运行时（同源；原生桥调用与所在帧无关）。
+    try {
+      if (!window.Capacitor && window.parent && window.parent.Capacitor) {
+        window.Capacitor = window.parent.Capacitor;
+      }
+    } catch (e) {}
+    // 配对/忘记/切换运行模式都发生在设置层内：setBackendMode 只派发本帧事件，
+    // applyPairingLink 的 location.reload() 也只重载 iframe —— 把"运行模式已提交"
+    // （backend-mode-changed，applyPairingLink 里位于 setE2EConfig 之后的提交点）
+    // 转发给宿主整页重载。注意不转发 e2e-config-changed：它先于 setBackendMode
+    // 触发，此时重载会截断流程，留下半配对状态。
+    window.addEventListener("alma:ios:backend-mode-changed", function () {
+      try { window.parent.postMessage({ type: "alma-android-reload-main" }, "*"); } catch (e) {}
+    });
+  }
+
   function settingsFrame() { return document.getElementById("alma-settings-frame"); }
   function hideSettingsFrame() {
     var f = settingsFrame();
@@ -72,7 +113,10 @@
   }
   if (!inSubframe) {
     window.addEventListener("message", function (e) {
-      if (e && e.data && e.data.type === "alma-settings-close") hideSettingsFrame();
+      if (!e || !e.data) return;
+      if (e.data.type === "alma-settings-close") hideSettingsFrame();
+      // 设置层里完成配对/断开：主文档整页重载（iframe 自己的 reload 不影响宿主）
+      if (e.data.type === "alma-android-reload-main") location.reload();
     });
     // 原生返回键入口（MainActivity.onBackPressed 调用）：设置层可见则关闭并报告已处理
     window.__almaAndroidBack = function () {

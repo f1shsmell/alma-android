@@ -5,10 +5,15 @@ import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.os.Build;
 import android.os.Bundle;
+import android.webkit.JavascriptInterface;
 import android.webkit.WebView;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.core.content.ContextCompat;
+import androidx.webkit.WebViewCompat;
+import androidx.webkit.WebViewFeature;
 import com.getcapacitor.BridgeActivity;
+import java.util.Collections;
+import java.util.Locale;
 
 /**
  * Alma Android 壳。
@@ -19,6 +24,8 @@ import com.getcapacitor.BridgeActivity;
  *       WebChromeClient 在 App 已持有运行时权限时会放行 WebView 的
  *       PermissionRequest —— 所以这里在启动时主动申请 CAMERA。</li>
  *   <li>首帧背景色与页面一致，减少启动白闪。</li>
+ *   <li>注入系统 locale（renderer 语言检测用；WebView 的 navigator.language
+ *       不随系统语言，需要原生权威值）。</li>
  * </ul>
  */
 public class MainActivity extends BridgeActivity {
@@ -42,6 +49,35 @@ public class MainActivity extends BridgeActivity {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
                 != PackageManager.PERMISSION_GRANTED) {
             cameraPermission.launch(Manifest.permission.CAMERA);
+        }
+
+        // 系统语言：Android WebView 的 navigator.language 不随系统语言（Capacitor
+        // 长期已知问题，常返 en-US），renderer 的语言检测因此误判。原生侧提供权威
+        // locale：documentStart 脚本（API 33+）在任何页面 JS 之前注入主帧与 iframe；
+        // 旧设备回退 JavascriptInterface，由 shim 同步读取。二者皆无时 shim 退回
+        // navigator.language。
+        String langScript = "window.__almaAndroidLang__=\"" + Locale.getDefault().toLanguageTag() + "\";";
+        try {
+            if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+                java.util.Set<String> origins = new java.util.HashSet<>(java.util.Arrays.asList(
+                        "https://localhost", "http://localhost"));
+                WebViewCompat.addDocumentStartJavaScript(webView, langScript, origins);
+            }
+        } catch (Throwable t) {
+            // 不支持则静默降级到 JavascriptInterface
+        }
+        try {
+            webView.addJavascriptInterface(new LocaleBridge(), "__almaAndroidLocale");
+        } catch (Throwable t) {
+            // 同上
+        }
+    }
+
+    /** 兜底 locale 通道：documentStart 不可用（<API 33）时由 shim 同步调用。 */
+    public static class LocaleBridge {
+        @JavascriptInterface
+        public String getLanguageTag() {
+            return Locale.getDefault().toLanguageTag();
         }
     }
 

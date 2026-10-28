@@ -65,7 +65,9 @@ alma-android/
 | 1 | 注入 shim（紧跟 `<body>`，首帧即手机布局） |
 | 2 | 平台身份补丁 A–E：`isPhoneShell`/`isPhone`/`isIOS`(=手机壳语义)/PlatformProvider 初始 state 同步读 dataset/settings 标题栏 |
 | 2.5 | composer chip `min-w-0`（修复长模型名把发送按钮挤出屏幕） |
+| 2.7 | 手机设置语言行（跟随系统 / English·中文·日本語，词典补键） |
 | 3.5 | connected chunk 迷你 boot + 桥模块注入 |
+| 3.9 | 文案中性化（iOS 专属措辞 → 设备中性） |
 
 ## 使用 / 配对
 
@@ -73,6 +75,8 @@ alma-android/
 2. Android 安装后：设置 → 我的 Mac → 扫码（首扫需授予相机权限；被系统静默拒绝的去 系统设置→应用→Alma→权限 手动开）
 3. 配对成功自动重载 → 完整手机体验（会话列表/生成跑在 Mac 上，经 E2E 加密中继）
 4. 不连 Mac：设置 → 本机 → AI 提供商，配自己的密钥
+
+**语言**：首启跟随系统语言（Android WebView 的 `navigator.language` 不随系统，由原生侧提供权威 locale）；设置 → 外观下方可切换 跟随系统 / English / 中文 / 日本語，选择立即生效并持久化。
 
 ## 升级到新版 Alma
 

@@ -152,7 +152,18 @@
       return json({ models: merged });
     }
 
-    if (method === "GET" && path === "/api/settings") return json(d.settings);
+    // GET 必须返回非空对象且带 general.language：renderer 的 loadSettings() 对空对象
+    // 回退 defaultSettings（language:"en"），ThemeContext 的 effect 会据此把整个应用
+    // 改回英文（覆盖 shim 的系统语言预置）。语言单源取 i18next 的持久化键
+    // i18nextLng —— shim 预置（跟随系统）与设置里的语言行（手动切换）都写它。
+    if (method === "GET" && path === "/api/settings") {
+      var out = JSON.parse(JSON.stringify(d.settings));
+      if (!out.general || typeof out.general !== "object") out.general = {};
+      var curLng = null;
+      try { curLng = localStorage.getItem("i18nextLng"); } catch (e) {}
+      out.general.language = curLng || out.general.language || "en";
+      return json(out);
+    }
     if (method === "PUT" && path === "/api/settings") {
       var s = d.settings, src = body || {};
       Object.keys(src).forEach(function (k) {

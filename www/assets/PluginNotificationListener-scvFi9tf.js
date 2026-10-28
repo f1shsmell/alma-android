@@ -7974,6 +7974,7 @@ const en = {
     macNotConnected: "Not connected",
     appearance: "Appearance",
     theme: "Theme",
+    language: "Language",
     themeSystem: "System",
     themeLight: "Light",
     themeDark: "Dark",
@@ -7994,7 +7995,7 @@ const en = {
     notPairingLink: "That isn’t an Alma pairing link.",
     notAlmaCode: "Not an Alma pairing code",
     cameraStarting: "Starting camera…",
-    cameraDenied: "Camera access is off. Allow it in iOS Settings → Alma.",
+    cameraDenied: "Camera access is off. Allow it in system Settings → Alma.",
     cameraUnavailable: "The camera isn’t available here.",
     connected: "Connected",
     where: "Where Alma runs",
@@ -8016,7 +8017,7 @@ const en = {
     step: "On your Mac: Alma → Settings → Remote Access",
     scan: "Scan QR code",
     paste: "Paste link instead",
-    phoneOnly: "Use this iPhone only"
+    phoneOnly: "Use this device only"
   },
   composer: {
     placeholder: "Message",
@@ -8047,6 +8048,7 @@ const zh = {
     macNotConnected: "未连接",
     appearance: "外观",
     theme: "主题",
+    language: "语言",
     themeSystem: "跟随系统",
     themeLight: "浅色",
     themeDark: "深色",
@@ -8067,7 +8069,7 @@ const zh = {
     notPairingLink: "这不是 Alma 的配对链接。",
     notAlmaCode: "不是 Alma 的配对码",
     cameraStarting: "正在启动相机…",
-    cameraDenied: "相机权限已关闭。请在 iOS 设置 → Alma 中允许。",
+    cameraDenied: "相机权限已关闭。请在系统设置 → Alma 中允许。",
     cameraUnavailable: "此处无法使用相机。",
     connected: "已连接",
     where: "Alma 运行在",
@@ -8120,10 +8122,11 @@ const ja = {
     macNotConnected: "未接続",
     appearance: "外観",
     theme: "テーマ",
+    language: "言語",
     themeSystem: "システム",
     themeLight: "ライト",
     themeDark: "ダーク",
-    onThisIphone: "この iPhone",
+    onThisIphone: "この端末",
     providers: "AI プロバイダ",
     providersDesc: "この端末で Alma を実行するときに使うキー",
     about: "情報",
@@ -8140,7 +8143,7 @@ const ja = {
     notPairingLink: "Alma のペアリングリンクではありません。",
     notAlmaCode: "Alma のペアリングコードではありません",
     cameraStarting: "カメラを起動中…",
-    cameraDenied: "カメラへのアクセスがオフです。iOS の設定 → Alma で許可してください。",
+    cameraDenied: "カメラへのアクセスがオフです。端末の設定 → Alma で許可してください。",
     cameraUnavailable: "ここではカメラを使えません。",
     connected: "接続しました",
     where: "Alma の実行場所",
@@ -8162,7 +8165,7 @@ const ja = {
     step: "Mac で：Alma → 設定 → リモートアクセス",
     scan: "QR コードをスキャン",
     paste: "リンクを貼り付ける",
-    phoneOnly: "この iPhone だけで使う"
+    phoneOnly: "この端末だけで使う"
   },
   composer: {
     placeholder: "メッセージ",
@@ -38015,7 +38018,7 @@ function PhoneQRScanner({ open, onClose, onDecode, onPaste }) {
               className: "absolute inset-x-0 bottom-0 flex flex-col items-center gap-5 px-8 text-center",
               style: { paddingBottom: "calc(env(safe-area-inset-bottom) + 28px)" },
               children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: cn("max-w-[300px] text-[15px] leading-6 transition-colors", rejected ? "text-amber-300" : "text-white/80"), children: rejected ? t2("phone.pair.notAlmaCode", "Not an Alma pairing code") : state === "starting" ? t2("phone.pair.cameraStarting", "Starting camera…") : state === "denied" ? t2("phone.pair.cameraDenied", "Camera access is off. Allow it in iOS Settings → Alma.") : state === "unavailable" ? t2("phone.pair.cameraUnavailable", "The camera isn’t available here.") : state === "accepted" ? t2("phone.pair.connected", "Connected") : t2("phone.pair.scanHint", "On your Mac, open Alma → Settings → Remote Access.") }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: cn("max-w-[300px] text-[15px] leading-6 transition-colors", rejected ? "text-amber-300" : "text-white/80"), children: rejected ? t2("phone.pair.notAlmaCode", "Not an Alma pairing code") : state === "starting" ? t2("phone.pair.cameraStarting", "Starting camera…") : state === "denied" ? t2("phone.pair.cameraDenied", "Camera access is off. Allow it in system Settings → Alma.") : state === "unavailable" ? t2("phone.pair.cameraUnavailable", "The camera isn’t available here.") : state === "accepted" ? t2("phone.pair.connected", "Connected") : t2("phone.pair.scanHint", "On your Mac, open Alma → Settings → Remote Access.") }),
                 onPaste && state !== "accepted" && /* @__PURE__ */ jsxRuntimeExports.jsxs(
                   "button",
                   {
@@ -38266,7 +38269,13 @@ function sectionFromTab(tab) {
   return null;
 }
 function PhoneSettings({ initialSection, onClose }) {
-  const { t: t2 } = useI18n();
+  const { t: t2, changeLanguage, getSupportedLanguages, getCurrentLanguage } = useI18n();
+  const curLangSel = (() => {
+    try {
+      if (!localStorage.getItem("alma.android.lang.user")) return "__system";
+    } catch {}
+    return (getCurrentLanguage() || "en").split("-")[0];
+  })();
   const { theme, setTheme } = useTheme();
   const { conn, label: connLabel, dotClass } = useConnectionSummary();
   const [section, setSection] = reactExports.useState(() => sectionFromTab(initialSection));
@@ -38359,6 +38368,34 @@ function PhoneSettings({ initialSection, onClose }) {
             )) })
           ] }) })
         ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("section", { children: /* @__PURE__ */ jsxRuntimeExports.jsx(PhoneGroup, { children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-3 px-4 py-2.5", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "flex-1 text-left text-[16px]", children: t2("phone.settings.language", "Language") }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex rounded-[9px] bg-muted p-[2px]", children: [{ id: "__system", label: t2("phone.settings.themeSystem", "System") }].concat(getSupportedLanguages().map((l2) => ({ id: l2.code, label: l2.name }))).map((opt) => /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "button",
+            {
+              type: "button",
+              onClick: () => {
+                if (opt.id === curLangSel) return;
+                void window.almaHaptics?.selection();
+                if (opt.id === "__system") {
+                  try { localStorage.removeItem("alma.android.lang.user"); } catch {}
+                  const nat = String(window.__almaAndroidLang__ || navigator.language || "en").toLowerCase();
+                  changeLanguage(nat.indexOf("zh") === 0 ? "zh" : nat.indexOf("ja") === 0 ? "ja" : "en");
+                } else {
+                  try { localStorage.setItem("alma.android.lang.user", "1"); } catch {}
+                  changeLanguage(opt.id);
+                }
+                try { window.parent.postMessage({ type: "alma-android-reload-main" }, "*"); } catch {}
+              },
+              className: cn(
+                "h-8 rounded-[7px] px-3 text-[13px] font-medium transition-colors",
+                curLangSel === opt.id ? "bg-background text-foreground shadow-sm" : "text-muted-foreground"
+              ),
+              children: opt.label
+            },
+            opt.id
+          )) })
+        ] }) }) }),
         mode2 === "local" && /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx(PhoneGroupLabel, { children: t2("phone.settings.onThisIphone", "On this device") }),
           /* @__PURE__ */ jsxRuntimeExports.jsx(PhoneGroup, { children: /* @__PURE__ */ jsxRuntimeExports.jsx(

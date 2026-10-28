@@ -87,6 +87,86 @@ open(p, 'w', encoding='utf-8').write(s)
 print('✓ composer chip → min-w-0（修复发送按钮被切）')
 PYEOF
 
+# ── 2.7 手机设置：语言行（跟随系统 / 手动切换 en·zh·ja）──
+# 官方手机词典没有 language 键（iOS 靠系统级 per-app 语言设置），Android 壳自行提供：
+# 外观区之后插入语言分段控件（与主题行同款交互），"跟随系统"档 = 清除手动选择标记，
+# shim 下次启动回到原生 locale 检测。changeLanguage 经 i18next detector 自动持久化
+# 到 i18nextLng；切换即时生效（useI18n 内部是 useTranslation，响应式）。
+python3 - << 'PYEOF'
+import glob
+
+target = None
+for p in sorted(glob.glob('www/assets/*.js')):
+    with open(p, encoding='utf-8', errors='ignore') as f:
+        if 'function PhoneSettings(' in f.read():
+            target = p
+            break
+assert target, '手机设置 chunk（PhoneSettings）未找到'
+
+s = open(target, encoding='utf-8').read()
+n = 0
+
+# 1) PhoneSettings 解构语言 API；当前选中态：手动选过 → 该语言，否则"跟随系统"
+OLD = 'function PhoneSettings({ initialSection, onClose }) {\n  const { t: t2 } = useI18n();'
+NEW = ('function PhoneSettings({ initialSection, onClose }) {\n'
+       '  const { t: t2, changeLanguage, getSupportedLanguages, getCurrentLanguage } = useI18n();\n'
+       '  const curLangSel = (() => {\n'
+       '    try {\n'
+       '      if (!localStorage.getItem("alma.android.lang.user")) return "__system";\n'
+       '    } catch {}\n'
+       '    return (getCurrentLanguage() || "en").split("-")[0];\n'
+       '  })();')
+assert OLD in s, 'PhoneSettings 解构锚点未找到'
+s = s.replace(OLD, NEW, 1); n += 1
+
+# 2) 外观 section 之后插入语言 section（结构与外观 section 同构：section → PhoneGroup → 行）
+OLD = '        ] }),\n        mode2 === "local" &&'
+NEW = '''        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("section", { children: /* @__PURE__ */ jsxRuntimeExports.jsx(PhoneGroup, { children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-3 px-4 py-2.5", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "flex-1 text-left text-[16px]", children: t2("phone.settings.language", "Language") }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex rounded-[9px] bg-muted p-[2px]", children: [{ id: "__system", label: t2("phone.settings.themeSystem", "System") }].concat(getSupportedLanguages().map((l2) => ({ id: l2.code, label: l2.name }))).map((opt) => /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "button",
+            {
+              type: "button",
+              onClick: () => {
+                if (opt.id === curLangSel) return;
+                void window.almaHaptics?.selection();
+                if (opt.id === "__system") {
+                  try { localStorage.removeItem("alma.android.lang.user"); } catch {}
+                  const nat = String(window.__almaAndroidLang__ || navigator.language || "en").toLowerCase();
+                  changeLanguage(nat.indexOf("zh") === 0 ? "zh" : nat.indexOf("ja") === 0 ? "ja" : "en");
+                } else {
+                  try { localStorage.setItem("alma.android.lang.user", "1"); } catch {}
+                  changeLanguage(opt.id);
+                }
+                try { window.parent.postMessage({ type: "alma-android-reload-main" }, "*"); } catch {}
+              },
+              className: cn(
+                "h-8 rounded-[7px] px-3 text-[13px] font-medium transition-colors",
+                curLangSel === opt.id ? "bg-background text-foreground shadow-sm" : "text-muted-foreground"
+              ),
+              children: opt.label
+            },
+            opt.id
+          )) })
+        ] }) }) }),
+        mode2 === "local" &&'''
+assert OLD in s, '外观 section 收尾锚点未找到'
+s = s.replace(OLD, NEW, 1); n += 1
+
+# 3) 三份手机词典补 language 键
+for old, new in [
+    ('theme: "Theme",\n    themeSystem:', 'theme: "Theme",\n    language: "Language",\n    themeSystem:'),
+    ('theme: "主题",\n    themeSystem:', 'theme: "主题",\n    language: "语言",\n    themeSystem:'),
+    ('theme: "テーマ",\n    themeSystem:', 'theme: "テーマ",\n    language: "言語",\n    themeSystem:'),
+]:
+    assert old in s, '词典锚点未找到: ' + old[:20]
+    s = s.replace(old, new, 1); n += 1
+
+open(target, 'w', encoding='utf-8').write(s)
+print(f'✓ 手机设置语言行 {n} 处 → {target.split("/")[-1]}')
+PYEOF
+
 # ── 3.5 手机桥：复用官方 connected chunk 的桥实现（almaIOSConfig/E2E/全量 Electron shim）──
 # 官方 iOS 壳由原生注入这些桥；Android 壳用 connected-D8mcBngn.js 里的 JS 参考实现。
 # boot() 是桌面 handoff 流程（要求 #connect? hash、platform="connected"），不能跑——
@@ -141,6 +221,12 @@ REPL = [
     ('iPhone のみ', 'この端末のみ'),
     ('この iPhone で Alma を実行するときに使うキー', 'この端末で Alma を実行するときに使うキー'),
     ('この iPhone をペアリングして始めましょう', 'この端末をペアリングして始めましょう'),
+    ('この iPhone だけで使う', 'この端末だけで使う'),
+    ('この iPhone', 'この端末'),
+    ('Use this iPhone only', 'Use this device only'),
+    ('Allow it in iOS Settings → Alma.', 'Allow it in system Settings → Alma.'),
+    ('相机权限已关闭。请在 iOS 设置 → Alma 中允许。', '相机权限已关闭。请在系统设置 → Alma 中允许。'),
+    ('カメラへのアクセスがオフです。iOS の設定 → Alma で許可してください。', 'カメラへのアクセスがオフです。端末の設定 → Alma で許可してください。'),
 ]
 n = 0
 for p in glob.glob('www/assets/*.js'):
