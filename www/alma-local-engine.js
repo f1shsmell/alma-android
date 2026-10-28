@@ -78,6 +78,7 @@
       if (!Array.isArray(p.models)) p.models = [];
       d.providers.push(p);
       save(d);
+      broadcastProviders("provider_created", { provider: p });
       return json(p, 201);
     }
 
@@ -88,6 +89,7 @@
       if (method === "PUT") {
         pr1.models = (body && body.models) || [];
         save(d);
+        broadcastProviders("provider_updated", { provider: pr1 });
         return json({ models: pr1.models });
       }
     }
@@ -131,12 +133,14 @@
       if (method === "PUT") {
         Object.keys(body || {}).forEach(function (k) { pr5[k] = body[k]; });
         save(d);
+        broadcastProviders("provider_updated", { provider: pr5 });
         return json(pr5);
       }
       if (method === "DELETE") {
         var d3 = db();
         d3.providers = d3.providers.filter(function (x) { return x.id !== m[1]; });
         save(d3);
+        broadcastProviders("provider_deleted", { id: m[1] });
         return new Response(null, { status: 204 });
       }
     }
@@ -210,20 +214,52 @@
     return realFetch(input, init);
   };
 
-  // WebSocket：本地模式下的 /ws/* 无处可连，返回永不打开的哑连接
-  // （避免 ProviderSyncClient 对 ws://alma.local 的无限重连）
+  // ── 回环 WebSocket：镜像桌面端的变更推送 ──────────────────────────
+  // 官方 renderer 的服务商增删改靠 ws://…/ws/providers 推送 provider_created/
+  // updated/deleted → SWR mutate() 刷新 UI。本地模式无后端可连，改为：连接立即
+  // 打开的本地回环 socket；引擎在路由层完成变更后广播对应消息 —— 所有面板
+  // （含「启用服务商」等按钮）都能即时反馈，不依赖任何手工补丁。
+  var LOCAL_SOCKETS = [];
+  function LocalLoopSocket(url) {
+    this.url = String(url);
+    this.readyState = 0;
+    this.onopen = null; this.onmessage = null; this.onclose = null; this.onerror = null;
+    var self = this;
+    setTimeout(function () {
+      if (self.readyState !== 0) return;
+      self.readyState = 1;
+      if (typeof self.onopen === "function") { try { self.onopen({ type: "open" }); } catch (e) {} }
+      LOCAL_SOCKETS.push(self);
+    }, 0);
+  }
+  LocalLoopSocket.prototype.send = function () {};
+  LocalLoopSocket.prototype.close = function () {
+    this.readyState = 3;
+    var i = LOCAL_SOCKETS.indexOf(this);
+    if (i > -1) LOCAL_SOCKETS.splice(i, 1);
+    // 刻意不派发 close：ProviderSyncClient 的 onclose 会 3 秒重连（风暴）
+  };
+  LocalLoopSocket.prototype.addEventListener = function (t, fn) { this["on" + t] = typeof fn === "function" ? fn : null; };
+  LocalLoopSocket.prototype.removeEventListener = function (t) { this["on" + t] = null; };
+  function broadcastProviders(type, payload) {
+    var data;
+    try { data = JSON.stringify(Object.assign({ type: type }, payload || {})); } catch (e) { return; }
+    LOCAL_SOCKETS.slice().forEach(function (s) {
+      if (s.readyState === 1 && typeof s.onmessage === "function") {
+        try { s.onmessage({ type: "message", data: data }); } catch (e) {}
+      }
+    });
+  }
+
+  // WebSocket：alma.local 的连接给回环实现（真 WS 对不存在的本地服务只会
+  // 无限重连）；其余地址透传原生 WebSocket。
   var RealWebSocket = window.WebSocket;
   function PatchedWebSocket(url, protocols) {
     var u = String(url);
     if (u.indexOf("ws://alma.local") === 0 || u.indexOf("wss://alma.local") === 0) {
-      this.readyState = 0; // CONNECTING：不 open 也不 close → 客户端 isConnecting 卡位，不再重试
-      this.send = function () {};
-      this.close = function () {};
-      this.addEventListener = function () {};
-      this.removeEventListener = function () {};
-    } else {
-      return new RealWebSocket(url, protocols);
+      return new LocalLoopSocket(u);
     }
+    return new RealWebSocket(url, protocols);
   }
   PatchedWebSocket.CONNECTING = 0; PatchedWebSocket.OPEN = 1;
   PatchedWebSocket.CLOSING = 2; PatchedWebSocket.CLOSED = 3;

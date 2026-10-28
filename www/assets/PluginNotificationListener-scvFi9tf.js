@@ -38372,8 +38372,8 @@ function PhoneSettings({ initialSection, onClose }) {
             )) })
           ] }) })
         ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("section", { children: /* @__PURE__ */ jsxRuntimeExports.jsx(PhoneGroup, { children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-3 px-4 py-2.5", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "flex-1 text-left text-[16px]", children: t2("phone.settings.language", "Language") }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { children: /* @__PURE__ */ jsxRuntimeExports.jsx(PhoneGroup, { children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "px-4 py-2.5", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "pb-2 text-[16px]", children: t2("phone.settings.language", "Language") }),
           /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex rounded-[9px] bg-muted p-[2px]", children: [{ id: "__system", label: t2("phone.settings.themeSystem", "System") }].concat(getSupportedLanguages().map((l2) => ({ id: l2.code, label: l2.name }))).map((opt) => /* @__PURE__ */ jsxRuntimeExports.jsx(
             "button",
             {
@@ -38392,7 +38392,7 @@ function PhoneSettings({ initialSection, onClose }) {
                 try { window.parent.postMessage({ type: "alma-android-reload-main" }, "*"); } catch {}
               },
               className: cn(
-                "h-8 rounded-[7px] px-3 text-[13px] font-medium transition-colors",
+                "h-8 flex-1 rounded-[7px] px-1 text-[13px] font-medium transition-colors whitespace-nowrap",
                 curLangSel === opt.id ? "bg-background text-foreground shadow-sm" : "text-muted-foreground"
               ),
               children: opt.label
