@@ -1,6 +1,6 @@
 # Alma for Android
 
-Unofficial Android port of [Alma](https://alma.now) — same architecture as the official iOS app: **a thin Capacitor shell hosting the exact same React renderer that ships in the Mac app**. Zero re-implemented UI: the official mobile interface is activated through platform identity + bridge injection.
+Unofficial Android port of [Alma](https://alma.now) — same architecture as iOS Alma : **a thin Capacitor shell hosting the exact same React renderer that ships in the Mac app**. Zero re-implemented UI: the official mobile interface is activated through platform identity + bridge injection.
 
 > 中文说明见下方。
 
@@ -20,7 +20,7 @@ Requires JDK **21** and the Android SDK (platform 35). No other local dependenci
 
 ---
 
-Alma 的非官方 Android 版：**Capacitor 壳 + 与 Mac 安装包完全相同的 React renderer**，与官方 iOS 端同构。零 UI 重写——官方手机界面通过平台身份补丁与桥注入直接激活。
+Alma 的非官方 Android 版：**Capacitor 壳 + 与 Mac 安装包完全相同的 React renderer**，与yetone的 iOS 端 Alma 同构。零 UI 重写——官方手机界面通过平台身份补丁与桥注入直接激活。
 
 > **v1.0（2026-10-27）**：配对、E2E 加密中继、手机版设置（含「本机 / AI 提供商」自备密钥模式）、扫码配对、剪贴板、触感反馈全部打通；已与 Mac 端官方 Alma 完成真实配对验证。
 
@@ -66,7 +66,6 @@ alma-android/
 | 2 | 平台身份补丁 A–E：`isPhoneShell`/`isPhone`/`isIOS`(=手机壳语义)/PlatformProvider 初始 state 同步读 dataset/settings 标题栏 |
 | 2.5 | composer chip `min-w-0`（修复长模型名把发送按钮挤出屏幕） |
 | 3.5 | connected chunk 迷你 boot + 桥模块注入 |
-| 4 | 文案中性化（“这台 iPhone”→“这台设备”等 11 组） |
 
 ## 使用 / 配对
 
@@ -89,7 +88,7 @@ npx cap sync android
 
 ## 许可
 
-[MIT](LICENSE) — 版权归 Alma 作者 **yetone** 所有。
+[MIT](LICENSE) — 版权归 Alma 作者 **yetone（叶天帝）** 所有。
 
 本项目为非官方社区移植，与 Alma 官方无隶属关系。`www/` 内嵌的 renderer 来自 Alma 官方安装包，经作者许可以 MIT 随本仓库发布。
 
