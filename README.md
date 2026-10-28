@@ -1,6 +1,26 @@
 # Alma for Android
 
-向官方 iOS 端看齐的 Android 版 Alma：**Capacitor 壳 + 与 Mac 安装包完全相同的 React renderer**。零 UI 开发——官方手机界面通过平台身份补丁与桥注入直接激活。
+Unofficial Android port of [Alma](https://alma.now) — same architecture as the official iOS app: **a thin Capacitor shell hosting the exact same React renderer that ships in the Mac app**. Zero re-implemented UI: the official mobile interface is activated through platform identity + bridge injection.
+
+> 中文说明见下方。
+
+## Quick build (self-contained)
+
+```bash
+npm install                 # Capacitor 7 CLI + plugins
+npx cap sync android        # copy www/ (bundled renderer) into the Android project
+cd android
+JAVA_HOME=<jdk21> ./gradlew assembleDebug
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
+
+Requires JDK **21** and the Android SDK (platform 35). No other local dependencies — the Alma renderer is bundled in `www/` (included with the author's permission).
+
+**Pairing**: on your Mac, open Alma → Settings → Remote Access, show the QR code; on Android: Settings → 我的 Mac → scan (grant camera on first scan). Chats run on your Mac over an E2E-encrypted relay. Provider-key-only mode (no Mac) lives in Settings → 本机 → AI 提供商.
+
+---
+
+Alma 的非官方 Android 版：**Capacitor 壳 + 与 Mac 安装包完全相同的 React renderer**，与官方 iOS 端同构。零 UI 重写——官方手机界面通过平台身份补丁与桥注入直接激活。
 
 > **v1.0（2026-10-27）**：配对、E2E 加密中继、手机版设置（含「本机 / AI 提供商」自备密钥模式）、扫码配对、剪贴板、触感反馈全部打通；已与 Mac 端官方 Alma 完成真实配对验证。
 
@@ -26,7 +46,19 @@
 
 官方 iOS 壳的原生桥（`almaIOSConfig` 等）在本项目中由 connected chunk 里的官方 JS 实现提供：`scripts/sync-assets.sh` 把它的 `boot()`（桌面 handoff 流程）替换为「只装桥不渲染」的迷你 boot，注入 index.html / settings.html。**注意不可调用 `installConnectedWindowBridges`**（它会以非 `??=` 方式覆盖 settingsWindow）。
 
-## 补丁系统（sync-assets.sh，每次从 alma-re 原始产物重建 www/）
+## 目录
+
+```
+alma-android/
+├── www/                    # Alma renderer（已打补丁的最终态，直接可用）
+├── android/                # Capacitor Gradle 工程（含官方同款图标）
+├── scripts/sync-assets.sh  # 【可选】升级用：新版 renderer → www/ 全流程重建
+├── scripts/shim/alma-droid-shim.js
+├── capacitor.config.json   # appId local.almaandroid.app / androidScheme https
+└── package.json
+```
+
+## 补丁系统（sync-assets.sh，升级 Alma 版本时重跑）
 
 | 块 | 作用 |
 |---|---|
@@ -36,31 +68,6 @@
 | 3.5 | connected chunk 迷你 boot + 桥模块注入 |
 | 4 | 文案中性化（“这台 iPhone”→“这台设备”等 11 组） |
 
-## 目录
-
-```
-alma-android/
-├── www/                    # Alma renderer（不入库；sync-assets.sh 从 alma-re 同步+打补丁）
-├── android/                # Capacitor Gradle 工程（含官方图标生成的 mipmap）
-├── scripts/sync-assets.sh  # renderer → www 全流程（alma-re 升级后重跑）
-├── scripts/shim/alma-droid-shim.js
-├── capacitor.config.json   # appId local.almaandroid.app / androidScheme https
-└── package.json
-```
-
-## 构建 APK
-
-工具链：`brew install openjdk@21`（**必须 21**；17 报「无效的源发行版：21」）+ Android SDK（platform-35 / build-tools-35.0.0，许可已接受）。
-
-```bash
-# 前置：alma-re 已解包官方 renderer 到 app/out/renderer
-bash scripts/sync-assets.sh          # 重建 www/（注入 shim + 全部补丁）
-npx cap sync android
-cd android && JAVA_HOME=/opt/homebrew/opt/openjdk@21 ./gradlew assembleDebug
-# 产物: android/app/build/outputs/apk/debug/app-debug.apk（~41MB）
-adb install -r app/build/outputs/apk/debug/app-debug.apk
-```
-
 ## 使用 / 配对
 
 1. Mac 上打开 Alma → 设置 → Remote Access，生成配对二维码（`alma://connect?u=…&e2e=1&k=…` 深链格式）
@@ -68,9 +75,23 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 3. 配对成功自动重载 → 完整手机体验（会话列表/生成跑在 Mac 上，经 E2E 加密中继）
 4. 不连 Mac：设置 → 本机 → AI 提供商，配自己的密钥
 
-## 版权说明
+## 升级到新版 Alma
 
-`www/` 与 APK 内嵌的 renderer 为 Alma 官方专有产物，**本仓库不包含**（构建时从本地 alma-re 解包再生）；仓库内容仅为自有壳工程与补丁脚本。请勿公开分发 APK。
+`www/` 提交的是**已打补丁的最终态**，日常构建不需要重新生成。Alma 发新版时：
+
+```bash
+# 先从新版 Mac 安装包解出 renderer（或更新本地解包），然后：
+bash scripts/sync-assets.sh [renderer目录]   # 默认 ~/AlmaProjects/alma-re/app/out/renderer
+npx cap sync android
+```
+
+脚本内含 assert：上游结构变化（补丁定位失败）会直接报错，不会静默漏 patch。
+
+## 版权与许可
+
+- `www/` 内嵌的 renderer 版权归 **Alma 作者（yetone）** 所有，**经作者许可**随本仓库分发；请勿将其抽出本仓库单独二次分发。
+- 壳工程与脚本（`android/`、`scripts/`）为本项目自有代码，许可证待定。
+- 本项目为非官方社区移植，与 Alma 官方无隶属关系。
 
 ## 已验证（2026-10-27）
 
