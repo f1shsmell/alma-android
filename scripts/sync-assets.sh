@@ -317,6 +317,10 @@ REPL = [
     ('Allow it in iOS Settings → Alma.', 'Allow it in system Settings → Alma.'),
     ('相机权限已关闭。请在 iOS 设置 → Alma 中允许。', '相机权限已关闭。请在系统设置 → Alma 中允许。'),
     ('カメラへのアクセスがオフです。iOS の設定 → Alma で許可してください。', 'カメラへのアクセスがオフです。端末の設定 → Alma で許可してください。'),
+    # 本机模式尚不完善（本地生成等未实现），设置区标题标注 beta（用户要求）
+    ('onThisIphone: "On this device"', 'onThisIphone: "On this device (beta)"'),
+    ('onThisIphone: "本机"', 'onThisIphone: "本机模式（beta）"'),
+    ('onThisIphone: "この端末"', 'onThisIphone: "この端末（beta）"'),
 ]
 n = 0
 for p in glob.glob('www/assets/*.js'):

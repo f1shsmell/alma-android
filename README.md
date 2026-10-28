@@ -77,7 +77,7 @@ alma-android/
 1. Mac 上打开 Alma → 设置 → Remote Access，生成配对二维码（`alma://connect?u=…&e2e=1&k=…` 深链格式）
 2. Android 安装后：设置 → 我的 Mac → 扫码（首扫需授予相机权限；被系统静默拒绝的去 系统设置→应用→Alma→权限 手动开）
 3. 配对成功自动重载 → 完整手机体验（会话列表/生成跑在 Mac 上，经 E2E 加密中继）
-4. 不连 Mac：设置 → 本机 → AI 提供商，配自己的密钥
+4. 不连 Mac：设置 → 本机模式（beta）→ AI 提供商，配自己的密钥
 
 **语言**：首启跟随系统语言（Android WebView 的 `navigator.language` 不随系统，由原生侧提供权威 locale）；设置 → 外观下方可切换 跟随系统 / English / 中文 / 日本語，选择立即生效并持久化。
 
