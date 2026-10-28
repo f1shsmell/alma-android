@@ -31574,7 +31574,7 @@ const VirtualizedMessageList = reactExports.memo(
           const showRetrievedMemories = isLastAssistant && retrievedMemories.length > 0;
           const nextAssistantMessage = message.message.role === "user" ? nextAssistantByUserId.get(message.id) : void 0;
           const messageIsLoading = isLastAssistant ? isLoading : false;
-          return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { "data-message-id": message.id, className: "pb-2 pl-6 pr-[39px]", children: [
+          return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { "data-message-id": message.id, className: `pb-2 ${isPhoneShell() ? "px-2" : "pl-6 pr-[39px]"}`, children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx(MessageTimeBoundary, { message, previous: messages[index - 1] }),
             /* @__PURE__ */ jsxRuntimeExports.jsx(MessageRenderBoundary, { message, children: /* @__PURE__ */ jsxRuntimeExports.jsx(
               ChatMessageCard,
@@ -31639,7 +31639,7 @@ const VirtualizedMessageList = reactExports.memo(
         (atBottom) => atBottom && !pinDisengagedRef.current ? isFollowingGeneratedContent ? "auto" : "smooth" : false,
         [isFollowingGeneratedContent]
       );
-      const Footer = reactExports.useCallback(() => footerContent ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "pb-2 pl-6 pr-[39px]", children: footerContent }) : null, [footerContent]);
+      const Footer = reactExports.useCallback(() => footerContent ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: `pb-2 ${isPhoneShell() ? "px-2" : "pl-6 pr-[39px]"}`, children: footerContent }) : null, [footerContent]);
       if (messages.length === 0) {
         return footerContent ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className, children: footerContent }) : null;
       }
@@ -37112,7 +37112,7 @@ function Chat({
             // ease-out as the sidebar width, so open/close tracks smoothly
             // instead of the instant rightward "jump" a static swap used to
             // cause on new-chat auto-open.
-            paddingRight: artifactSidebarVisiblyOpen && !showTimeline ? "0px" : "51px",
+            paddingRight: isPhoneShell() ? "0px" : artifactSidebarVisiblyOpen && !showTimeline ? "0px" : "51px",
             transition: isThreadContentVisible ? "opacity 120ms cubic-bezier(0.25, 0.1, 0.25, 1), padding-right 300ms ease-out" : "none"
           },
           children: /* @__PURE__ */ jsxRuntimeExports.jsx(

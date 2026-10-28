@@ -87,6 +87,32 @@ open(p, 'w', encoding='utf-8').write(s)
 print('✓ composer chip → min-w-0（修复发送按钮被切）')
 PYEOF
 
+# ── 2.6 手机聊天布局：释放桌面 gutter（左右共 ~126px）────────────────
+# 配对聊天的消息区是桌面布局：滚动容器 paddingRight 51px（给浮动 artifact
+# 栏/时间线尺让位，侧栏关闭也保留）+ 每行 pl-6 pr-[39px]（左 24 右 39）。
+# 390px 屏上内容只剩 ~275px，用户气泡（80% 上限）再缩到 ~210px —— 一行只
+# 排得下八九个汉字，整个界面显得很挤。手机壳没有 artifact 侧栏/时间线尺，
+# 两个 gutter 都不该留：行内边距改 px-2，外层 paddingRight 归零。
+# isPhoneShell() 为假（桌面/connected）时字符串原样，零回归。
+python3 - << 'PYEOF'
+p = 'www/assets/App-CHUt1SP7.js'
+s = open(p, encoding='utf-8').read()
+n = 0
+
+OLD = '"pb-2 pl-6 pr-[39px]"'
+NEW = '`pb-2 ${isPhoneShell() ? "px-2" : "pl-6 pr-[39px]"}`'
+assert s.count(OLD) == 2, '消息行内边距锚点数异常: ' + str(s.count(OLD))
+s = s.replace(OLD, NEW); n += 2
+
+OLD = 'paddingRight: artifactSidebarVisiblyOpen && !showTimeline ? "0px" : "51px"'
+NEW = 'paddingRight: isPhoneShell() ? "0px" : artifactSidebarVisiblyOpen && !showTimeline ? "0px" : "51px"'
+assert s.count(OLD) == 1, '消息区 paddingRight 锚点数异常'
+s = s.replace(OLD, NEW, 1); n += 1
+
+open(p, 'w', encoding='utf-8').write(s)
+print(f'✓ 手机聊天布局 {n} 处 → App-CHUt1SP7.js')
+PYEOF
+
 # ── 2.7 手机设置：语言行（跟随系统 / 手动切换 en·zh·ja）──
 # 官方手机词典没有 language 键（iOS 靠系统级 per-app 语言设置），Android 壳自行提供：
 # 外观区之后插入语言分段控件（与主题行同款交互），"跟随系统"档 = 清除手动选择标记，
