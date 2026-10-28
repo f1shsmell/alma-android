@@ -15,7 +15,9 @@ cp -R "$SRC/." www/
 # ── 1. 注入 shim（紧跟 <body>：document.body 已存在 → 首帧即手机布局） ──
 python3 - << 'PYEOF'
 import glob, re, shutil
-shutil.copyfile('scripts/shim/alma-droid-shim.js', 'www/alma-droid-shim.js')
+for src, dst in [('scripts/shim/alma-droid-shim.js', 'www/alma-droid-shim.js'),
+                 ('scripts/shim/alma-local-engine.js', 'www/alma-local-engine.js')]:
+    shutil.copyfile(src, dst)
 
 for p in glob.glob('www/*.html'):
     s = open(p, encoding='utf-8').read()
@@ -24,10 +26,12 @@ for p in glob.glob('www/*.html'):
     # 若旧注入残留在 head，先移除
     s = re.sub(r'<script>\s*// alma-android: 平台桥.*?</script>\n?', '', s, flags=re.S)
     m = re.search(r'<body[^>]*>', s)
+    tags = '\n<script src="./alma-droid-shim.js"></script>' + \
+           '\n<script src="./alma-local-engine.js"></script>'
     if m:
-        s = s[:m.end()] + '\n<script src="./alma-droid-shim.js"></script>' + s[m.end():]
+        s = s[:m.end()] + tags + s[m.end():]
     else:
-        s = s.replace('</head>', '<script src="./alma-droid-shim.js"></script></head>')
+        s = s.replace('</head>', tags.strip() + '</head>')
     open(p, 'w', encoding='utf-8').write(s)
     print('✓ 注入', p)
 PYEOF
@@ -125,6 +129,7 @@ python3 - << 'PYEOF'
 import glob
 REPL = [
     ('On this iPhone', 'On this device'),
+    ('runs on this iPhone', 'runs on this device'),
     ('This iPhone only', 'This device only'),
     ('Pair this iPhone', 'Pair this device'),
     ('Connect this iPhone', 'Connect this device'),
@@ -134,6 +139,7 @@ REPL = [
     ('这台 iPhone', '这台设备'),
     ('iPhone 上で動作します', '端末上で動作します'),
     ('iPhone のみ', 'この端末のみ'),
+    ('この iPhone で Alma を実行するときに使うキー', 'この端末で Alma を実行するときに使うキー'),
     ('この iPhone をペアリングして始めましょう', 'この端末をペアリングして始めましょう'),
 ]
 n = 0

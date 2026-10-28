@@ -7979,7 +7979,7 @@ const en = {
     themeDark: "Dark",
     onThisIphone: "On this device",
     providers: "AI providers",
-    providersDesc: "Keys used when Alma runs on this iPhone",
+    providersDesc: "Keys used when Alma runs on this device",
     about: "About",
     version: "Version"
   },
@@ -8125,7 +8125,7 @@ const ja = {
     themeDark: "ダーク",
     onThisIphone: "この iPhone",
     providers: "AI プロバイダ",
-    providersDesc: "この iPhone で Alma を実行するときに使うキー",
+    providersDesc: "この端末で Alma を実行するときに使うキー",
     about: "情報",
     version: "バージョン"
   },
@@ -38371,7 +38371,7 @@ function PhoneSettings({ initialSection, onClose }) {
               trailing: /* @__PURE__ */ jsxRuntimeExports.jsx(ChevronRight, { size: 17, className: "shrink-0 text-muted-foreground/60" })
             }
           ) }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx(PhoneFootnote, { children: t2("phone.settings.providersDesc", "Keys used when Alma runs on this iPhone") })
+          /* @__PURE__ */ jsxRuntimeExports.jsx(PhoneFootnote, { children: t2("phone.settings.providersDesc", "Keys used when Alma runs on this device") })
         ] }),
         /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx(PhoneGroupLabel, { children: t2("phone.settings.about", "About") }),
