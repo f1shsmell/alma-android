@@ -20,11 +20,9 @@ Requires JDK **21** and the Android SDK (platform 35). No other local dependenci
 
 ---
 
-Alma 的非官方 Android 版：**Capacitor 壳 + 与 Mac 安装包完全相同的 React renderer**，与yetone的 iOS 端 Alma 同构。零 UI 重写——官方手机界面通过平台身份补丁与桥注入直接激活。
+Alma 的非官方 Android 版：**Capacitor 壳 + 与 Mac 安装包完全相同的 React renderer**，与 yetone 的 iOS 端 Alma 同构。UI 通过平台身份补丁与桥注入直接激活。
 
-> **v1.0（2026-10-27）**：配对、E2E 加密中继、手机版设置（含「本机 / AI 提供商」自备密钥模式）、扫码配对、剪贴板、触感反馈全部打通；已与 Mac 端官方 Alma 完成真实配对验证。
-
-## 架构（与官方 iOS 同构）
+## 架构（与 iOS Alma 同构）
 
 ```
 ┌─ Android 壳（Capacitor 7）──────────────────────────┐
@@ -44,13 +42,13 @@ Alma 的非官方 Android 版：**Capacitor 壳 + 与 Mac 安装包完全相同�
    relay.alma.now / 自建中继 ←→ Mac 端 Alma（MobileRelay）
 ```
 
-官方 iOS 壳的原生桥（`almaIOSConfig` 等）在本项目中由 connected chunk 里的官方 JS 实现提供：`scripts/sync-assets.sh` 把它的 `boot()`（桌面 handoff 流程）替换为「只装桥不渲染」的迷你 boot，注入 index.html / settings.html。**注意不可调用 `installConnectedWindowBridges`**（它会以非 `??=` 方式覆盖 settingsWindow）。
+yetone iOS 壳的原生桥（`almaIOSConfig` 等）在本项目中由 connected chunk 里的官方 JS 实现提供：`scripts/sync-assets.sh` 把它的 `boot()`（桌面 handoff 流程）替换为「只装桥不渲染」的迷你 boot，注入 index.html / settings.html。**注意不可调用 `installConnectedWindowBridges`**（它会以非 `??=` 方式覆盖 settingsWindow）。
 
 ## 目录
 
 ```
 alma-android/
-├── www/                    # Alma renderer（已打补丁的最终态，直接可用）
+├── www/                    # Alma renderer
 ├── android/                # Capacitor Gradle 工程（含官方同款图标）
 ├── scripts/sync-assets.sh  # 【可选】升级用：新版 renderer → www/ 全流程重建
 ├── scripts/shim/alma-droid-shim.js
@@ -70,7 +68,6 @@ alma-android/
 | 2.9 | 主题切换同步主帧 + 容忍 settings 未加载 |
 | 3.0 | 手机 hero 移除「连接你的 Mac」配对引导块（入口保留在 设置→我的 Mac） |
 | 3.5 | connected chunk 迷你 boot + 桥模块注入 |
-| 3.9 | 文案中性化（iOS 专属措辞 → 设备中性） |
 
 ## 使用 / 配对
 
@@ -78,8 +75,9 @@ alma-android/
 2. Android 安装后：设置 → 我的 Mac → 扫码（首扫需授予相机权限；被系统静默拒绝的去 系统设置→应用→Alma→权限 手动开）
 3. 配对成功自动重载 → 完整手机体验（会话列表/生成跑在 Mac 上，经 E2E 加密中继）
 4. 不连 Mac：设置 → 本机模式（beta）→ AI 提供商，配自己的密钥
+**（注：本机模式暂不完善，待后续开发...）**
 
-**语言**：首启跟随系统语言（Android WebView 的 `navigator.language` 不随系统，由原生侧提供权威 locale）；设置 → 外观下方可切换 跟随系统 / English / 中文 / 日本語，选择立即生效并持久化。
+**语言**：首启跟随系统语言；设置 → 外观下方可切换 跟随系统 / English / 中文 / 日本語，选择立即生效并持久化。
 
 ## 升级到新版 Alma
 
@@ -97,11 +95,4 @@ npx cap sync android
 
 [MIT](LICENSE) — 版权归 Alma 作者 **yetone（叶天帝）** 所有。
 
-本项目为非官方社区移植，与 Alma 官方无隶属关系。`www/` 内嵌的 renderer 来自 Alma 官方安装包，经作者许可以 MIT 随本仓库发布。
-
-## 已验证（2026-10-27）
-
-- 手机 UI 在真机与无头 Chrome 完整渲染（抽屉/搜索/新建/设置/本机会话），0 运行时异常
-- 与 Mac 官方 Alma 扫码配对成功，会话/头像同步
-- E2E 协议（alma-relay-e2e/v1）与 Mac 端 MobileRelay 帧协议对齐（wopen/wmsg/wclose）
-- 设置 → 手机版设置全功能（外观/关于/连接管理/AI 提供商）
+本项目为非官方个人移植，与 Alma 官方无隶属关系。`www/` 内嵌的 renderer 来自 Alma 官方安装包，经作者许可以 MIT 随本仓库发布。
