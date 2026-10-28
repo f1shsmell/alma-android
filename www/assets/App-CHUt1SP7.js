@@ -60280,7 +60280,18 @@ function ChatLayout({ children }) {
     setShowBottomShadow(showShadow);
   }, []);
   const chatThreadInfo = reactExports.useMemo(
-    () => currentThread ? {
+    () => {
+      if (!currentThread && threadId && isPhoneShell()) {
+        try {
+          const listEntry = cache.get("threads")?.data;
+          const summary = Array.isArray(listEntry) ? listEntry.find((th) => th && th.id === threadId) : null;
+          if (summary) return { threadId, title: summary.title, messageCount: 0,
+            selectedModel: selectedModel || summary.model || void 0, models, isLoading: true,
+            isIncognito: summary.isIncognito, workspaceName, workspacePath,
+            workspaceIsWorktree, workspaceIsSession, onModelChange: handleModelChange, onRefreshModels: loadModels };
+        } catch {}
+      }
+      return currentThread ? {
       threadId: currentThread.id,
       title: currentThread.title,
       messageCount: currentThread.messages.length,
@@ -60294,7 +60305,8 @@ function ChatLayout({ children }) {
       workspaceIsSession,
       onModelChange: handleModelChange,
       onRefreshModels: loadModels
-    } : void 0,
+    } : void 0;
+    },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [
       currentThread?.id,

@@ -113,6 +113,42 @@ open(p, 'w', encoding='utf-8').write(s)
 print(f'✓ 手机聊天布局 {n} 处 → App-CHUt1SP7.js')
 PYEOF
 
+# ── 2.61 历史对话进入体验：加载空窗期给标题栏占位 ──────────────────────
+# 配对模式下点击历史对话，getThread 要走中继完整往返（1-3s）；期间
+# currentThread 为 null → chatThreadInfo 为 void 0，标题栏空白、消息区
+# 空白，看起来像「点了没反应」。从 threads 列表缓存取标题先垫上（能从
+# 抽屉点进来说明列表必然已加载），进入瞬间标题栏就有内容；线程数据到
+# 达后自然替换。仅手机壳生效。
+python3 - << 'PYEOF'
+p = 'www/assets/App-CHUt1SP7.js'
+s = open(p, encoding='utf-8').read()
+
+OLD = 'const chatThreadInfo = reactExports.useMemo(\n    () => currentThread ? {'
+NEW = '''const chatThreadInfo = reactExports.useMemo(
+    () => {
+      if (!currentThread && threadId && isPhoneShell()) {
+        try {
+          const listEntry = cache.get("threads")?.data;
+          const summary = Array.isArray(listEntry) ? listEntry.find((th) => th && th.id === threadId) : null;
+          if (summary) return { threadId, title: summary.title, messageCount: 0,
+            selectedModel: selectedModel || summary.model || void 0, models, isLoading: true,
+            isIncognito: summary.isIncognito, workspaceName, workspacePath,
+            workspaceIsWorktree, workspaceIsSession, onModelChange: handleModelChange, onRefreshModels: loadModels };
+        } catch {}
+      }
+      return currentThread ? {'''
+assert s.count(OLD) == 1, 'chatThreadInfo 锚点数异常: ' + str(s.count(OLD))
+s = s.replace(OLD, NEW, 1)
+
+OLD2 = '      onModelChange: handleModelChange,\n      onRefreshModels: loadModels\n    } : void 0,'
+NEW2 = '      onModelChange: handleModelChange,\n      onRefreshModels: loadModels\n    } : void 0;\n    },'
+assert s.count(OLD2) == 1, 'chatThreadInfo 收尾锚点数异常: ' + str(s.count(OLD2))
+s = s.replace(OLD2, NEW2, 1)
+
+open(p, 'w', encoding='utf-8').write(s)
+print('✓ 历史对话进入占位 → App-CHUt1SP7.js')
+PYEOF
+
 # ── 2.7 手机设置：语言行（跟随系统 / 手动切换 en·zh·ja）──
 # 官方手机词典没有 language 键（iOS 靠系统级 per-app 语言设置），Android 壳自行提供：
 # 外观区之后插入语言分段控件（与主题行同款交互），"跟随系统"档 = 清除手动选择标记，
