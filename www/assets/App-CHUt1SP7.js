@@ -6732,20 +6732,7 @@ function Main() {
             "mt-8 flex flex-col items-center gap-3 transition-opacity duration-200 ease-out",
             willLeave && "pointer-events-none opacity-0"
           ),
-          children: isPhone ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "px-8 text-center text-[15px] leading-6 text-muted-foreground", children: t("phone.home.connectHint", "Alma runs on your Mac. Pair this device to start.") }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx(
-              "button",
-              {
-                type: "button",
-                onClick: () => {
-                  window.settingsWindow?.open("connection").catch(console.error);
-                },
-                className: "h-11 rounded-full bg-primary px-6 text-[16px] font-semibold text-primary-foreground active:opacity-80",
-                children: t("phone.home.connectMac", "Connect your Mac")
-              }
-            )
-          ] }) : /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+          children: isPhone ? null : /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-xs text-muted-foreground", children: t("main.configureProvider") }),
             /* @__PURE__ */ jsxRuntimeExports.jsx(
               Button$1,

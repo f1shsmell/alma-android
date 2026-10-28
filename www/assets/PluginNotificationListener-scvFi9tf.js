@@ -38098,6 +38098,10 @@ function usePairingActions() {
       }
       const text = raw.trim();
       if (!text || !cfg.isPairingLink?.(text)) return false;
+      if (window.parent && window.parent !== window) {
+        try { window.parent.postMessage({ type: "alma-android-apply-pairing", link: text }, "*"); } catch {}
+        return true;
+      }
       setBusy(true);
       try {
         const result = await cfg.applyPairingLink(text);

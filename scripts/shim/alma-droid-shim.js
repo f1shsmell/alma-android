@@ -87,13 +87,16 @@
 
   // ── 设置层（iframe）专属修复 ─────────────────────────────────────
   if (inSubframe) {
-    // Capacitor 只注入主帧：iframe 里官方 Preferences/E2E 桥会退化到 web 实现
-    // （localStorage），而主帧经原生桥读写 SharedPreferences —— 两套存储裂脑：
-    // 配对写进 localStorage、主帧读原生 → 永远显示未配对（"扫码没反应"的根因）。
-    // 借用主帧的 Capacitor 运行时（同源；原生桥调用与所在帧无关）。
+    // Capacitor 官方注入主帧优先（现代设备 documentStart 脚本本就覆盖同源 iframe）；
+    // 但部分 WebView 版本 iframe 拿不到完整原生桥 —— 只要宿主的原生桥可用就强制
+    // 借用宿主的（闭包都在宿主上下文，androidBridge 等引用正确），兜底裂脑：
+    // iframe 写 localStorage / 主帧读原生 SharedPreferences 的"配对没反应"。
     try {
-      if (!window.Capacitor && window.parent && window.parent.Capacitor) {
-        window.Capacitor = window.parent.Capacitor;
+      var pCap = window.parent && window.parent.Capacitor;
+      if (pCap && pCap.isNativePlatform && pCap.isNativePlatform()) {
+        window.Capacitor = pCap;
+      } else if (!window.Capacitor && pCap) {
+        window.Capacitor = pCap;
       }
     } catch (e) {}
     // 配对/忘记/切换运行模式都发生在设置层内：setBackendMode 只派发本帧事件，
@@ -104,6 +107,24 @@
     window.addEventListener("alma:ios:backend-mode-changed", function () {
       try { window.parent.postMessage({ type: "alma-android-reload-main" }, "*"); } catch (e) {}
     });
+  }
+
+  // 主帧侧：把主题/配对类同步请求应用到主文档（设置层 iframe 发来）
+  function applyThemeToMain(mode) {
+    if (mode !== "light" && mode !== "dark" && mode !== "system") return;
+    var dark = mode === "dark" ||
+      (mode === "system" && window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+    var root = document.documentElement;
+    root.classList.remove("light", "dark");
+    root.classList.add(dark ? "dark" : "light");
+    root.style.backgroundColor = dark ? "#282c34" : "#ffffff";
+    // 与官方 FOUC 缓存同键：主文档下次冷启动直接用新主题打底
+    try {
+      var raw = localStorage.getItem("alma:appearance-cache");
+      var cache = raw ? JSON.parse(raw) : {};
+      cache.mode = mode;
+      localStorage.setItem("alma:appearance-cache", JSON.stringify(cache));
+    } catch (e) {}
   }
 
   function settingsFrame() { return document.getElementById("alma-settings-frame"); }
@@ -117,6 +138,16 @@
       if (e.data.type === "alma-settings-close") hideSettingsFrame();
       // 设置层里完成配对/断开：主文档整页重载（iframe 自己的 reload 不影响宿主）
       if (e.data.type === "alma-android-reload-main") location.reload();
+      // 设置层扫码解码成功：链接交主帧执行（almaIOSConfig + 原生 Capacitor 都在
+      // 主帧，v1.0 验证过的环境；applyPairingLink 成功后自行 reload）
+      if (e.data.type === "alma-android-apply-pairing") {
+        var cfg = window.almaIOSConfig;
+        if (cfg && cfg.applyPairingLink) {
+          try { void cfg.applyPairingLink(String(e.data.link)); } catch (err) {}
+        }
+      }
+      // 设置层切换主题：主文档即时同步（不等冷启动）
+      if (e.data.type === "alma-android-theme") applyThemeToMain(e.data.theme);
     });
     // 原生返回键入口（MainActivity.onBackPressed 调用）：设置层可见则关闭并报告已处理
     window.__almaAndroidBack = function () {
@@ -134,6 +165,9 @@
         f = document.createElement("iframe");
         f.id = "alma-settings-frame";
         f.src = "./settings.html" + (tab ? "#" + encodeURIComponent(tab) : "");
+        // 扫码相机跑在本 iframe：显式授予 camera/mic（同源本应默认放行，
+        // 加上以规避个别 WebView 版本的 Permissions Policy 判定）
+        f.setAttribute("allow", "camera; microphone; fullscreen");
         f.setAttribute("style",
           "position:fixed;inset:0;width:100%;height:100%;border:0;z-index:2147483000;background:#fff");
         document.body.appendChild(f);

@@ -167,6 +167,95 @@ open(target, 'w', encoding='utf-8').write(s)
 print(f'✓ 手机设置语言行 {n} 处 → {target.split("/")[-1]}')
 PYEOF
 
+# ── 2.8 配对执行移回主帧（扫码 iframe 化回归的根治）─────────────────
+# 设置层是 iframe：扫码解码成功后 apply() 在 iframe 内跑 —— 原生桥/存储在 iframe
+# 环境的可用性无法在所有设备上保证，且 apply 的 try/finally 无 catch，任何一步
+# reject 都静默无响应。主帧（index.html）有 mini-boot 装好的 almaIOSConfig 与
+# 原生 Capacitor —— v1.0 配对成功的正是这个环境。iframe 只做解码，校验通过后
+# 把链接转发主帧执行（主帧 applyPairingLink 成功后自行 location.reload()）。
+python3 - << 'PYEOF'
+import glob
+
+target = None
+for p in sorted(glob.glob('www/assets/*.js')):
+    with open(p, encoding='utf-8', errors='ignore') as f:
+        if 'function PhoneSettings(' in f.read():
+            target = p
+            break
+assert target, '手机设置 chunk（PhoneSettings）未找到'
+
+s = open(target, encoding='utf-8').read()
+OLD = 'if (!text || !cfg.isPairingLink?.(text)) return false;\n      setBusy(true);'
+NEW = '''if (!text || !cfg.isPairingLink?.(text)) return false;
+      if (window.parent && window.parent !== window) {
+        try { window.parent.postMessage({ type: "alma-android-apply-pairing", link: text }, "*"); } catch {}
+        return true;
+      }
+      setBusy(true);'''
+assert OLD in s, 'applyPairing 校验锚点未找到'
+s = s.replace(OLD, NEW, 1)
+open(target, 'w', encoding='utf-8').write(s)
+print('✓ 配对执行转发主帧 →', target.split('/')[-1])
+PYEOF
+
+# ── 2.9 主题切换：iframe 内点击立即同步主帧 + 容忍 settings 未加载 ────
+# 官方 setTheme 首行 `if (!settings) return;` —— settings SWR 未就绪时点击是静默
+# no-op；且 iframe 内切换只作用于 iframe 文档，主界面不动（用户看到"点不了"）。
+# 修复：先 postMessage 通知宿主同步切换主文档（shim 端换 class + 写 appearance-cache），
+# 再走官方 updateSettings 持久化；settings 缺失时也照常提交（本地引擎会补默认值）。
+python3 - << 'PYEOF'
+import glob
+
+target = None
+for p in sorted(glob.glob('www/assets/*.js')):
+    with open(p, encoding='utf-8', errors='ignore') as f:
+        if 'const setTheme = async (newTheme) =>' in f.read():
+            target = p
+            break
+assert target, 'ThemeContext chunk（setTheme）未找到'
+
+s = open(target, encoding='utf-8').read()
+OLD = 'const setTheme = async (newTheme) => {\n    if (!settings) return;\n    await updateSettings({'
+NEW = '''const setTheme = async (newTheme) => {
+    try {
+      if (window.parent && window.parent !== window) window.parent.postMessage({ type: "alma-android-theme", theme: newTheme }, "*");
+    } catch {}
+    if (!settings) {
+      await updateSettings({ general: { theme: newTheme } });
+      return;
+    }
+    await updateSettings({'''
+assert OLD in s, 'setTheme 锚点未找到'
+s = s.replace(OLD, NEW, 1)
+open(target, 'w', encoding='utf-8').write(s)
+print('✓ 主题切换同步主帧 →', target.split('/')[-1])
+PYEOF
+
+# ── 3.0 手机 hero：移除"连接你的 Mac"配对引导块 ──────────────────────
+# 未配对/无 provider 时 hero 下方渲染 connectHint 文案 + connectMac 按钮；
+# 配对入口保留在 设置 → 我的 Mac，hero 只留标题/快捷 pill/输入框。
+python3 - << 'PYEOF'
+import glob
+
+target = None
+for p in sorted(glob.glob('www/assets/*.js')):
+    with open(p, encoding='utf-8', errors='ignore') as f:
+        if 'phone.home.connectHint' in f.read():
+            target = p
+            break
+assert target, 'App chunk（phone.home.connectHint）未找到'
+
+s = open(target, encoding='utf-8').read()
+HEAD = 'children: isPhone ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment'
+assert s.count(HEAD) == 1, 'hero phone 块头不唯一'
+i = s.find(HEAD)
+j = s.find('] }) :', i)
+assert j > i, 'hero phone 块尾未找到'
+s = s[:i] + 'children: isPhone ? null :' + s[j + len('] }) :'):]
+open(target, 'w', encoding='utf-8').write(s)
+print('✓ hero 配对引导块移除 →', target.split('/')[-1])
+PYEOF
+
 # ── 3.5 手机桥：复用官方 connected chunk 的桥实现（almaIOSConfig/E2E/全量 Electron shim）──
 # 官方 iOS 壳由原生注入这些桥；Android 壳用 connected-D8mcBngn.js 里的 JS 参考实现。
 # boot() 是桌面 handoff 流程（要求 #connect? hash、platform="connected"），不能跑——

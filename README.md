@@ -66,6 +66,9 @@ alma-android/
 | 2 | 平台身份补丁 A–E：`isPhoneShell`/`isPhone`/`isIOS`(=手机壳语义)/PlatformProvider 初始 state 同步读 dataset/settings 标题栏 |
 | 2.5 | composer chip `min-w-0`（修复长模型名把发送按钮挤出屏幕） |
 | 2.7 | 手机设置语言行（跟随系统 / English·中文·日本語，词典补键） |
+| 2.8 | 配对执行转发主帧（iframe 只解码，规避 iframe 桥环境差异） |
+| 2.9 | 主题切换同步主帧 + 容忍 settings 未加载 |
+| 3.0 | 手机 hero 移除「连接你的 Mac」配对引导块（入口保留在 设置→我的 Mac） |
 | 3.5 | connected chunk 迷你 boot + 桥模块注入 |
 | 3.9 | 文案中性化（iOS 专属措辞 → 设备中性） |
 

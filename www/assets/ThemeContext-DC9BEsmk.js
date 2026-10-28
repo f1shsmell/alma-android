@@ -61970,7 +61970,13 @@ function ThemeProvider({ children }) {
     setEffectiveTheme(getEffectiveTheme(theme2));
   }, [theme2]);
   const setTheme = async (newTheme) => {
-    if (!settings) return;
+    try {
+      if (window.parent && window.parent !== window) window.parent.postMessage({ type: "alma-android-theme", theme: newTheme }, "*");
+    } catch {}
+    if (!settings) {
+      await updateSettings({ general: { theme: newTheme } });
+      return;
+    }
     await updateSettings({
       general: {
         ...settings.general,
