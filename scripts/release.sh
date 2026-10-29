@@ -63,7 +63,25 @@ if [ -n "$(git ls-remote --tags origin "refs/tags/${TAG}" 2>/dev/null | grep -q 
   TAG="v${NEW_NAME}"
   echo "▶ 壳修复/形态切换发布 $TAG"
 fi
-NOTES="${2:-Alma Android v${NEW_NAME}（renderer $RENDERER_VER）。}"
+# 更新说明：未显式传 $2 时自动取上一 tag 以来的提交标题做条目（应用内
+# 「更新内容」弹窗读 GitHub Release 正文 / latest.json notes）
+if [ -n "${2:-}" ]; then
+  NOTES="$2"
+else
+  LAST_TAG="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+  NOTES="Alma Android ${NEW_NAME}（renderer ${RENDERER_VER}）。"
+  if [ -n "$LAST_TAG" ]; then
+    while IFS= read -r line; do
+      line="$(echo "$line" | sed -e 's/^[a-z0-9]*: //' -e 's/（.*//' | cut -c1-60)"
+      [ -n "$line" ] && NOTES="$NOTES
+- $line"
+    done <<COMMITS
+$(git log --format='%s' "$LAST_TAG"..HEAD 2>/dev/null | grep -v '^release:')
+COMMITS
+  fi
+fi
+# 下载兜底镜像链（与应用内 UPDATE.mirrors 保持一致；latest.json 优先生效）
+MIRROR_BASES="https://gh-proxy.com/ https://ghfast.top/"
 ASSET="alma-android-${TAG}.apk"
 echo "▶ $CUR_NAME ($CUR_CODE) → $NEW_NAME ($NEW_CODE)  tag=$TAG"
 
@@ -82,7 +100,7 @@ cleanup() { [ "$STARTED_SERVER" = 1 ] && kill "$SERVER_PID" 2>/dev/null || true;
 trap cleanup EXIT
 
 fail=0
-for t in cdp-webview-gate.mjs cdp-e2e.mjs cdp-drawer.mjs cdp-update.mjs cdp-pair-nav.mjs; do
+for t in cdp-webview-gate.mjs cdp-e2e.mjs cdp-drawer.mjs cdp-update.mjs cdp-update-pill.mjs cdp-pair-nav.mjs; do
   [ -f "$TEST_DIR/$t" ] || continue
   echo "── $t"
   if ! node "$TEST_DIR/$t"; then fail=1; fi
@@ -105,12 +123,16 @@ cp "$APK" "/tmp/$ASSET"
 [ -d "$ROOT/../apk-serve" ] && cp "$APK" "$ROOT/../apk-serve/app-debug.apk" || true
 
 # ── 4. latest.json（镜像 fallback 的 raw 源，随 main 分支发布）────────
-# notes 用 \n 转义以便单行 JSON；应用内只展示版本号，这里仅留档。
-python3 - "$TAG" "$ASSET" "$NOTES" <<'PY'
+# notes 保留换行（应用内弹窗按行出条目）；mirrors = 兜底镜像全 URL 链，
+# 可在不发版的情况下远程调整下载兜底。
+python3 - "$TAG" "$ASSET" "$NOTES" "$MIRROR_BASES" <<'PY'
 import json, sys
-tag, asset, notes = sys.argv[1:4]
+tag, asset, notes, bases = sys.argv[1:5]
+apk = f"https://github.com/nanami-0713/alma-android/releases/download/{tag}/{asset}"
 with open("latest.json", "w") as f:
-    json.dump({"tag": tag, "apk": asset, "notes": notes.replace("\n", " ")}, f, ensure_ascii=False, indent=2)
+    json.dump({"tag": tag, "apk": asset, "notes": notes,
+               "mirrors": [b + apk for b in bases.split()]},
+              f, ensure_ascii=False, indent=2)
     f.write("\n")
 PY
 

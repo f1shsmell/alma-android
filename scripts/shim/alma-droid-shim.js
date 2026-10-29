@@ -339,7 +339,8 @@
     // "安装包已损坏"的主因之一）→ 多备几个分散风险；latest.json 的 mirrors
     // 字段（如有）优先生效，可在不发版的情况下远程调整。
     mirrors: ["https://gh-proxy.com/", "https://ghfast.top/"],
-    interval: 6 * 60 * 60 * 1000               // 启动静默检查限频
+    interval: 6 * 60 * 60 * 1000,              // 启动静默检查限频
+    skipKey: "alma.android.update.skippedTag"  // 「跳过此版本」记住的 tag（pill 不再露头）
   };
   var updateState = { status: "idle" };
   var updateListeners = [];
@@ -649,13 +650,11 @@
   // pill 用 position:fixed 直接挂 body、按 ⋯ 菜单钮的 rect 定位 —— 刻意
   // 不进 React 树（renderer 重渲染会吞掉外来节点），MutationObserver 兜底
   // 重挂。样式参考用户设计稿：深灰圆角 pill，↺-圈-上箭头 + 「更新」。
-  var UPDATE_SKIP_KEY = "alma.android.update.skippedTag";
-
   function updatePillShouldShow() {
     return !inSubframe
       && updateState && updateState.status === "update-available"
       && updateRel && updateRel.tag
-      && lsGet(UPDATE_SKIP_KEY) !== updateRel.tag;
+      && lsGet(UPDATE.skipKey) !== updateRel.tag;
   }
 
   // 左上 ⋯ 菜单钮：无 aria/文本，按几何位置找（近左上角的小图标钮）
@@ -706,9 +705,10 @@
     var out = [];
     var lines = String((updateRel && updateRel.notes) || "").split(/\r?\n/);
     for (var i = 0; i < lines.length && out.length < 8; i++) {
-      var t = lines[i].trim().replace(/^[-*•]\s+/, "").replace(/^#+\s*/, "");
+      var raw = lines[i].trim();
+      if (!raw || /^#/.test(raw) || /^Co-Authored-By|^🤖|^\[?skip/i.test(raw)) continue;
+      var t = raw.replace(/^[-*•]\s+/, "").replace(/\*\*/g, "").replace(/`/g, "");
       if (!t || t.length > 140) continue;
-      if (/^Co-Authored-By|^🤖|^\[?skip/i.test(t)) continue;
       out.push(t);
     }
     return out;
@@ -765,7 +765,7 @@
       "</div></div>";
     (document.body || document.documentElement).appendChild(overlay);
     overlay.querySelector("#alma-update-skip").addEventListener("click", function () {
-      try { lsSet(UPDATE_SKIP_KEY, updateRel.tag); } catch (e) {}
+      try { lsSet(UPDATE.skipKey, updateRel.tag); } catch (e) {}
       closeUpdateDialog();
       ensureUpdatePill();
     });

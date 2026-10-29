@@ -56,7 +56,9 @@ public class MainActivity extends BridgeActivity {
     /** 自更新：进行中的 DownloadManager 任务 id（-1 = 无）。 */
     private long updateDownloadId = -1;
     /** 主下载地址失败后的镜像重试地址（JS 传入，一次性）。 */
-    private String updateFallbackUrl;
+    private String updateFallbackUrl;            // 兼容旧调用（单值）；新调用走队列
+    /** 下载兜底镜像队列（按序换：下载失败 / 文件无效时取下一个）。 */
+    private final java.util.ArrayDeque<String> updateFallbacks = new java.util.ArrayDeque<>();
 
     private final androidx.activity.result.ActivityResultLauncher<String> cameraPermission =
         registerForActivityResult(new ActivityResultContracts.RequestPermission(), granted -> {
@@ -215,19 +217,25 @@ public class MainActivity extends BridgeActivity {
                 int status = col >= 0 ? c.getInt(col) : DownloadManager.STATUS_FAILED;
                 android.util.Log.d("almaUpdate", "download complete id=" + id + " status=" + status);
                 if (status == DownloadManager.STATUS_SUCCESSFUL) {
-                    installUpdate(); // 内部回调 downloaded / permission / error
-                } else if (updateFallbackUrl != null) {
-                    String fb = updateFallbackUrl;
-                    updateFallbackUrl = null;
-                    startUpdateDownload(fb);
+                    installUpdate(); // 内部回调 downloaded / permission / error；坏文件自动换镜像
                 } else {
-                    notifyUpdateState("error");
+                    String fb = nextUpdateFallback();
+                    if (fb != null) startUpdateDownload(fb);
+                    else notifyUpdateState("error");
                 }
             } finally {
                 if (c != null) c.close();
             }
         }
     };
+
+    /** 取下一个兜底镜像；队列空返回 null（兼容旧 shim 的单值 fallback）。 */
+    private String nextUpdateFallback() {
+        if (!updateFallbacks.isEmpty()) return updateFallbacks.poll();
+        String legacy = updateFallbackUrl;
+        updateFallbackUrl = null;
+        return legacy;
+    }
 
     /** 通知栏可见的 APK 下载（DownloadManager，断点续传由系统管理）。 */
     private void startUpdateDownload(String url) {
@@ -274,11 +282,10 @@ public class MainActivity extends BridgeActivity {
             return;
         }
         if (!isValidUpdateApk(apk)) {
-            android.util.Log.d("almaUpdate", "apk invalid (" + apk.length() + "B), fallback=" + updateFallbackUrl);
+            android.util.Log.d("almaUpdate", "apk invalid (" + apk.length() + "B), fallbacks=" + updateFallbacks.size());
             apk.delete();
-            if (updateFallbackUrl != null) {
-                String fb = updateFallbackUrl;
-                updateFallbackUrl = null;
+            String fb = nextUpdateFallback();
+            if (fb != null) {
                 startUpdateDownload(fb);
                 return; // 重试下载的终态仍经完成广播回到这里
             }
@@ -342,8 +349,19 @@ public class MainActivity extends BridgeActivity {
             try {
                 String u = url == null ? "" : url.trim();
                 if (!u.startsWith("http")) return "bad-url";
-                updateFallbackUrl = (fallback != null && fallback.trim().startsWith("http"))
-                        ? fallback.trim() : null;
+                updateFallbacks.clear();
+                updateFallbackUrl = null;
+                String fb = fallback == null ? "" : fallback.trim();
+                // 新协议：JSON 数组（镜像链，按序换）；旧协议：单个 URL
+                if (fb.startsWith("[")) {
+                    org.json.JSONArray arr = new org.json.JSONArray(fb);
+                    for (int i = 0; i < arr.length(); i++) {
+                        String s = arr.optString(i, "").trim();
+                        if (s.startsWith("http")) updateFallbacks.add(s);
+                    }
+                } else if (fb.startsWith("http")) {
+                    updateFallbacks.add(fb);
+                }
                 startUpdateDownload(u);
                 return "ok";
             } catch (Throwable t) {
