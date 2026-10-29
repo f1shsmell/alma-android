@@ -240,16 +240,48 @@ public class MainActivity extends BridgeActivity {
         updateDownloadId = dm.enqueue(req);
     }
 
+    /** APK 完整性预检：可被 PackageManager 解析（截断 zip / HTML / 空文件 → null）且包名匹配。 */
+    private boolean isValidUpdateApk(File apk) {
+        try {
+            android.content.pm.PackageInfo pi =
+                    getPackageManager().getPackageArchiveInfo(apk.getPath(), 0);
+            boolean ok = pi != null && getPackageName().equals(pi.packageName);
+            android.util.Log.d("almaUpdate", "validate " + apk.length() + "B pkg="
+                    + (pi == null ? "null" : pi.packageName) + " -> " + ok);
+            return ok;
+        } catch (Throwable t) {
+            android.util.Log.d("almaUpdate", "validate threw " + t);
+            return false;
+        }
+    }
+
     /**
      * 拉起系统安装器安装已下载的 APK。Android 8+ 需用户先授予本应用
      * "安装未知应用"：未授予时直接引导到对应设置页（比依赖各 ROM 行为
      * 不一的 ActivityNotFoundException 兜底更可控），授权后回设置页
      * 再点一次"安装"即可。
+     *
+     * 下载"成功"≠文件有效：透明代理/门户可能对 GitHub 资产返回 200 的
+     * HTML 错误页，DownloadManager 照报 SUCCESSFUL（v0.4.213-8 实机
+     * "安装包已损坏"）。交安装器前先验：APK 可解析且包名是本应用；
+     * 坏了删掉走镜像重试（与下载失败同一路径），镜像也坏才报 error。
      */
     private void installUpdate() {
         File dir = getExternalFilesDir("updates");
         File apk = dir == null ? null : new File(dir, "alma-update.apk");
         if (apk == null || !apk.exists()) {
+            notifyUpdateState("error");
+            return;
+        }
+        if (!isValidUpdateApk(apk)) {
+            android.util.Log.d("almaUpdate", "apk invalid (" + apk.length() + "B), fallback=" + updateFallbackUrl);
+            apk.delete();
+            if (updateFallbackUrl != null) {
+                String fb = updateFallbackUrl;
+                updateFallbackUrl = null;
+                startUpdateDownload(fb);
+                return; // 重试下载的终态仍经完成广播回到这里
+            }
             notifyUpdateState("error");
             return;
         }

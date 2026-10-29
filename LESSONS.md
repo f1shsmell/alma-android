@@ -67,3 +67,11 @@
 - **修复**：`__almaAndroidBack` 实现层级链——detail Pane 已推出时先点 renderer 自己的返回钮（iframe 内部回退，走其滑动动画与状态机），已在根页才整层关闭。
 - **语言无关的 DOM 锚点**（设置页中/英/日三语，文案匹配不可靠）：renderer 返回钮 = ChevronLeft `svg` + 头部样式 `pl-1`/`pr-2`（Tailwind 工具类名不随构建哈希）；**detail Pane 的 `aria-hidden` 直接由 `pushed`（`section !== null`）驱动**——`false` = 子屛当前推出，`true` = 已收回，是比 rect/transform 更干净的判定（React 渲染同步翻转，无动画中间态）。
 - **教训**：宿主给 iframe 盖了一层导航时，返回键的处理必须穿透到 iframe 内部层级，否则用户的"返回"语义会在某一层被吞掉整层；找 DOM 锚点优先看 aria 属性/结构/工具类名，别用文案。
+
+## 2026-10-30 下载"成功"≠文件有效：安装器收到垃圾报「安装包已损坏」
+
+- **现象**（v0.4.213-8 OPPO 实机）：应用内更新下载完成、拉起安装器，安装器报「安装包已损坏」。GitHub 资产本身字节级完好（gh 下载 sha256 与本地构建一致）。
+- **根因**：DownloadManager 报 SUCCESSFUL 只代表 HTTP 传输走完——透明代理/门户对 GitHub 资产可能返回 **200 的 HTML 错误页**，旧代码拿到文件不校验直接交安装器。另实测 gh-proxy 镜像对该网络只有 ~15KB/s（38MB 拉了 570s 只到 8.4MB）——镜像兜底也会慢到不可用。
+- **修复**：`installUpdate()` 交安装器前 `getPackageArchiveInfo` 预检（截断 zip/HTML/空文件 → null）**且包名必须匹配本应用**；坏了删文件、自动换镜像重下（与下载失败同路径），镜像也坏才报 error。
+- **教训**：把系统组件的"成功"当数据完整性保证是错的——下载完成≠内容正确；对外来文件先验后用（解析即校验，比比对长度/哈希更省事且权威）。
+- **测试技巧**：往 `getExternalFilesDir` 塞文件——`run-as`/shell 对 `/storage/emulated/0/Android/data/<pkg>` 均无权限；`adb root` 后写 raw 路径 `/data/media/0/...` 可行（google_apis 镜像可 root）。**同一文件路径被覆写后 FUSE 视图可能陈旧读到旧内容**（换文件要 rm + force-stop 应用 + drop_caches，或干脆隔离测试）；测试钩子链式包装共享变量会让状态计数逐轮 +1（每轮 arm 都把上一轮 wrapper 当 prev 链上）——arm 要幂等替换而不是包一层。
