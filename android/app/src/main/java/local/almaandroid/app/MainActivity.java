@@ -1,15 +1,24 @@
 package local.almaandroid.app;
 
 import android.Manifest;
+import android.app.DownloadManager;
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
+import android.database.Cursor;
 import android.graphics.Color;
+import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.view.View;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebView;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.core.content.ContextCompat;
+import androidx.core.content.FileProvider;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
@@ -17,6 +26,7 @@ import androidx.core.view.WindowInsetsControllerCompat;
 import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
 import com.getcapacitor.BridgeActivity;
+import java.io.File;
 import java.util.Collections;
 import java.util.Locale;
 
@@ -42,6 +52,11 @@ public class MainActivity extends BridgeActivity {
     private static final int BG_LIGHT = Color.WHITE;
 
     private WebView webView;
+
+    /** 自更新：进行中的 DownloadManager 任务 id（-1 = 无）。 */
+    private long updateDownloadId = -1;
+    /** 主下载地址失败后的镜像重试地址（JS 传入，一次性）。 */
+    private String updateFallbackUrl;
 
     private final androidx.activity.result.ActivityResultLauncher<String> cameraPermission =
         registerForActivityResult(new ActivityResultContracts.RequestPermission(), granted -> {
@@ -83,8 +98,17 @@ public class MainActivity extends BridgeActivity {
         try {
             webView.addJavascriptInterface(new LocaleBridge(), "__almaAndroidLocale");
             webView.addJavascriptInterface(new UiBridge(), "__almaAndroidUi");
+            webView.addJavascriptInterface(new UpdateBridge(), "__almaAndroidUpdate");
         } catch (Throwable t) {
             // 同上
+        }
+
+        // 应用内自更新：DownloadManager 完成广播 → 拉起系统安装器
+        IntentFilter doneFilter = new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE);
+        if (Build.VERSION.SDK_INT >= 33) {
+            registerReceiver(updateReceiver, doneFilter, Context.RECEIVER_NOT_EXPORTED);
+        } else {
+            registerReceiver(updateReceiver, doneFilter);
         }
     }
 
@@ -162,6 +186,179 @@ public class MainActivity extends BridgeActivity {
         public void setTheme(final String mode) {
             runOnUiThread(() -> applyTheme(mode));
         }
+    }
+
+    // ── 应用内自更新 ────────────────────────────────────────────────────
+
+    /**
+     * 更新下载完成广播：成功 → 通过 FileProvider 拉起系统安装器；失败 →
+     * 用镜像地址重试一次（GitHub 直连在国内常超时）。终态经
+     * window.__almaUpdateState 回调给 shim（设置页"检查更新"行状态机）。
+     */
+    private final BroadcastReceiver updateReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            long id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1);
+            if (id == -1 || id != updateDownloadId) return;
+            updateDownloadId = -1;
+            DownloadManager dm = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
+            Cursor c = null;
+            try {
+                c = dm.query(new DownloadManager.Query().setFilterById(id));
+                if (c == null || !c.moveToFirst()) return;
+                int col = c.getColumnIndex(DownloadManager.COLUMN_STATUS);
+                int status = col >= 0 ? c.getInt(col) : DownloadManager.STATUS_FAILED;
+                if (status == DownloadManager.STATUS_SUCCESSFUL) {
+                    installUpdate(); // 内部回调 downloaded / permission / error
+                } else if (updateFallbackUrl != null) {
+                    String fb = updateFallbackUrl;
+                    updateFallbackUrl = null;
+                    startUpdateDownload(fb);
+                } else {
+                    notifyUpdateState("error");
+                }
+            } finally {
+                if (c != null) c.close();
+            }
+        }
+    };
+
+    /** 通知栏可见的 APK 下载（DownloadManager，断点续传由系统管理）。 */
+    private void startUpdateDownload(String url) {
+        DownloadManager dm = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
+        DownloadManager.Request req = new DownloadManager.Request(Uri.parse(url));
+        req.setTitle(getString(R.string.title_activity_main));
+        req.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+        // 与 file_paths.xml 的 external-files-path "updates" 对应
+        req.setDestinationInExternalFilesDir(this, "updates", "alma-update.apk");
+        updateDownloadId = dm.enqueue(req);
+    }
+
+    /**
+     * 拉起系统安装器安装已下载的 APK。Android 8+ 需用户先授予本应用
+     * "安装未知应用"：未授予时直接引导到对应设置页（比依赖各 ROM 行为
+     * 不一的 ActivityNotFoundException 兜底更可控），授权后回设置页
+     * 再点一次"安装"即可。
+     */
+    private void installUpdate() {
+        File dir = getExternalFilesDir("updates");
+        File apk = dir == null ? null : new File(dir, "alma-update.apk");
+        if (apk == null || !apk.exists()) {
+            notifyUpdateState("error");
+            return;
+        }
+        try {
+            if (Build.VERSION.SDK_INT >= 26
+                    && !getPackageManager().canRequestPackageInstalls()) {
+                Intent s = new Intent(
+                        android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                        Uri.parse("package:" + getPackageName()));
+                startActivity(s);
+                notifyUpdateState("permission");
+                return;
+            }
+            Uri content = FileProvider.getUriForFile(this,
+                    getPackageName() + ".fileprovider", apk);
+            Intent i = new Intent(Intent.ACTION_VIEW);
+            i.setDataAndType(content, "application/vnd.android.package-archive");
+            i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            startActivity(i);
+            notifyUpdateState("downloaded");
+        } catch (Throwable t) {
+            notifyUpdateState("error");
+        }
+    }
+
+    /** 下载终态同步给 shim；无监听（页面已翻页/重载）时静默。 */
+    private void notifyUpdateState(String state) {
+        if (webView == null) return;
+        try {
+            webView.evaluateJavascript(
+                "(window.__almaUpdateState?window.__almaUpdateState(\""
+                    + state.replace("\\", "\\\\").replace("\"", "\\\"")
+                    + "\"):0)", null);
+        } catch (Throwable t) {
+            // WebView 已销毁等
+        }
+    }
+
+    /**
+     * 自更新通道：window.almaUpdate 读壳版本（versionName 以 PackageManager
+     * 为权威 —— BuildConfig 在 AGP 8 默认不生成）、发起下载。调用来自
+     * WebView 的 JS 线程；DownloadManager 入队线程安全，安装动作在完成
+     * 广播（主线程）里做。
+     */
+    public class UpdateBridge {
+        @JavascriptInterface
+        public String getVersionName() {
+            try {
+                return getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+            } catch (Throwable t) {
+                return "";
+            }
+        }
+
+        /** @return "ok" 或错误码（shim 展示）；真正结果经 __almaUpdateState 回调。 */
+        @JavascriptInterface
+        public String downloadAndInstall(String url, String fallback) {
+            try {
+                String u = url == null ? "" : url.trim();
+                if (!u.startsWith("http")) return "bad-url";
+                updateFallbackUrl = (fallback != null && fallback.trim().startsWith("http"))
+                        ? fallback.trim() : null;
+                startUpdateDownload(u);
+                return "ok";
+            } catch (Throwable t) {
+                return "error";
+            }
+        }
+
+        /**
+         * 下载进度（shim 轮询渲染进度条）。STATUS_PAUSED（断网/等待网络）也
+         * 报 "downloading"——对用户而言任务仍在进行，避免进度条闪烁。
+         */
+        @JavascriptInterface
+        public String downloadProgress() {
+            try {
+                if (updateDownloadId == -1) return "{\"status\":\"none\"}";
+                DownloadManager dm = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
+                Cursor c = dm.query(new DownloadManager.Query().setFilterById(updateDownloadId));
+                try {
+                    if (c == null || !c.moveToFirst()) return "{\"status\":\"none\"}";
+                    int sCol = c.getColumnIndex(DownloadManager.COLUMN_STATUS);
+                    int dCol = c.getColumnIndex(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR);
+                    int tCol = c.getColumnIndex(DownloadManager.COLUMN_TOTAL_SIZE_BYTES);
+                    int st = sCol >= 0 ? c.getInt(sCol) : -1;
+                    long done = dCol >= 0 ? c.getLong(dCol) : 0;
+                    long total = tCol >= 0 ? c.getLong(tCol) : -1;
+                    String name = st == DownloadManager.STATUS_RUNNING
+                            || st == DownloadManager.STATUS_PAUSED ? "downloading"
+                            : st == DownloadManager.STATUS_SUCCESSFUL ? "successful" : "failed";
+                    return "{\"status\":\"" + name + "\",\"transferred\":" + done
+                            + ",\"total\":" + total + "}";
+                } finally {
+                    if (c != null) c.close();
+                }
+            } catch (Throwable t) {
+                return "{\"status\":\"none\"}";
+            }
+        }
+
+        /** "update-downloaded" 后 UI 的"重启安装"键：重新拉起安装器（首次弹窗可能被取消）。 */
+        @JavascriptInterface
+        public void launchInstaller() {
+            runOnUiThread(() -> installUpdate());
+        }
+    }
+
+    @Override
+    public void onDestroy() {
+        try {
+            unregisterReceiver(updateReceiver);
+        } catch (Throwable t) {
+            // 未注册时忽略
+        }
+        super.onDestroy();
     }
 
     /**

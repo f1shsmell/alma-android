@@ -257,7 +257,229 @@
     }
   };
 
-  // 应用信息：真值实现（版本懒读 renderer 自带的 SENTRY_RELEASE，形如 alma@0.4.213）
+  // ── 应用内自更新：把 renderer 自带的 updater UI 接到真实现 ─────────
+  // renderer 的 AboutSettings / 桌面 badge 全部走 window.almaApp 的
+  // autoUpdate 协议（getInfo.autoUpdateSupported / checkForUpdates /
+  // downloadUpdate / quitAndInstall / onAutoUpdateStatus 事件流），此前
+  // shim 只给"不可用"stub。真实现：GitHub Releases 检查（直连失败走
+  // 镜像 raw latest.json）→ 原生 DownloadManager 下载（通知栏可见）→
+  // FileProvider 拉起系统安装器（__almaAndroidUpdate 桥）。
+  var UPDATE = {
+    repo: "nanami-0713/alma-android",
+    branch: "main",
+    mirrorKey: "alma.android.update.mirror",   // 空串 = 显式禁用镜像
+    checkedKey: "alma.android.update.checkedAt",
+    stateKey: "alma.android.update.state",     // 终态（设置层 iframe 启动时取）
+    relKey: "alma.android.update.rel",         // 最近一次检查结果（tag/apk/fallback）
+    defaultMirror: "https://mirror.ghproxy.com/",
+    interval: 6 * 60 * 60 * 1000               // 启动静默检查限频
+  };
+  var updateState = { status: "idle" };
+  var updateListeners = [];
+  var updateRel = null;        // { tag, apk, fallback, notes }
+  var progressTimer = 0;
+  var lastProg = null;         // { t, bytes } 速度估算
+
+  function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+  function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+
+  function mirrorPrefix() {
+    var v = lsGet(UPDATE.mirrorKey);
+    return v === null ? UPDATE.defaultMirror : v;
+  }
+
+  /** APK 壳版本（versionName，与 GitHub tag 对齐）；非壳环境（桌面/E2E）为空。 */
+  function shellVersion() {
+    try { return (window.__almaAndroidUpdate.getVersionName() || "").trim(); } catch (e) { return ""; }
+  }
+
+  function parseVer(tag) {
+    var out = [], p = String(tag || "").replace(/^v/i, "").split(".");
+    for (var i = 0; i < 3; i++) out.push(parseInt(p[i], 10) || 0);
+    return out;
+  }
+  function isNewer(tag, current) {
+    if (!tag || !current) return false;
+    var a = parseVer(tag), b = parseVer(current);
+    for (var i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] > b[i];
+    return false;
+  }
+
+  function emitUpdate(state) {
+    updateState = state;
+    for (var i = 0; i < updateListeners.length; i++) {
+      try { updateListeners[i](state); } catch (e) {}
+    }
+  }
+
+  // 状态本地生效 + 跨帧广播（主帧/设置 iframe 各跑一份 shim：原生回调只进
+  // 主帧 → 主帧转发进 iframe；iframe 发起的检查反向广播给主帧 badge）。
+  // 接收方只 emit 不再转发，无回环。终态落 localStorage：iframe 启动时
+  // 由 getInfo().autoUpdateStatus 读回。
+  function broadcastUpdateState(state) {
+    emitUpdate(state);
+    if (state.status !== "checking" && state.status !== "downloading") {
+      lsSet(UPDATE.stateKey, JSON.stringify(state));
+    }
+    try {
+      if (inSubframe) {
+        window.parent.postMessage({ type: "alma-android-update-state", state: state }, "*");
+      } else {
+        var f = settingsFrame();
+        if (f && f.contentWindow) f.contentWindow.postMessage({ type: "alma-android-update-state", state: state }, "*");
+      }
+    } catch (e) {}
+  }
+  window.addEventListener("message", function (e) {
+    if (e && e.data && e.data.type === "alma-android-update-state" && e.data.state) {
+      emitUpdate(e.data.state);
+    }
+  });
+
+  function fetchJson(url, timeoutMs) {
+    return new Promise(function (resolve, reject) {
+      var done = false;
+      var timer = setTimeout(function () {
+        if (!done) { done = true; reject(new Error("timeout")); }
+      }, timeoutMs || 10000);
+      fetch(url, { headers: { Accept: "application/vnd.github+json" } })
+        .then(function (r) { if (!r.ok) throw new Error("http " + r.status); return r.json(); })
+        .then(function (j) { if (!done) { done = true; clearTimeout(timer); resolve(j); } })
+        .catch(function (err) { if (!done) { done = true; clearTimeout(timer); reject(err); } });
+    });
+  }
+
+  // 双源检查：GitHub API releases/latest（tag_name + apk 资产）；直连失败
+  // （国内网络）→ 镜像前缀 + raw latest.json（release.sh 随仓库生成）。
+  function checkLatestRelease() {
+    var m = mirrorPrefix();
+    var api = "https://api.github.com/repos/" + UPDATE.repo + "/releases/latest";
+    return fetchJson(api, 10000).then(function (rel) {
+      var apk = "";
+      var assets = (rel && rel.assets) || [];
+      for (var i = 0; i < assets.length; i++) {
+        if (/\.apk$/i.test(assets[i].name || "")) { apk = assets[i].browser_download_url; break; }
+      }
+      if (!rel || !rel.tag_name || !apk) throw new Error("bad-release");
+      return { tag: rel.tag_name, apk: apk, fallback: m ? m + apk : "", notes: rel.body || "" };
+    }).catch(function (e1) {
+      if (!m) throw e1;
+      return fetchJson(m + "https://raw.githubusercontent.com/" + UPDATE.repo + "/" + UPDATE.branch + "/latest.json", 10000)
+        .then(function (j) {
+          if (!j || !j.tag || !j.apk) throw new Error("bad-latest");
+          var apk = String(j.apk).indexOf("http") === 0 ? String(j.apk)
+            : "https://github.com/" + UPDATE.repo + "/releases/download/" + j.tag + "/" + j.apk;
+          return { tag: j.tag, apk: apk, fallback: m + apk, notes: j.notes || "" };
+        });
+    });
+  }
+
+  function doUpdateCheck(triggeredByUser) {
+    if (triggeredByUser) broadcastUpdateState({ status: "checking", checkedAt: Date.now() });
+    return checkLatestRelease().then(function (rel) {
+      updateRel = rel;
+      lsSet(UPDATE.relKey, JSON.stringify({ tag: rel.tag, apk: rel.apk, fallback: rel.fallback }));
+      lsSet(UPDATE.checkedKey, String(Date.now()));
+      var cur = shellVersion();
+      var avail = isNewer(rel.tag, cur);
+      // 静默检查只在"有新版"时广播（不打扰）；手动检查两种终态都广播
+      if (triggeredByUser || avail) {
+        broadcastUpdateState(avail
+          ? { status: "update-available", version: rel.tag.replace(/^v/i, ""), checkedAt: Date.now() }
+          : { status: "update-not-available", checkedAt: Date.now() });
+      }
+      return { status: avail ? "available" : "not-available", version: rel.tag.replace(/^v/i, "") };
+    }).catch(function (e) {
+      var msg = String((e && e.message) || e);
+      if (triggeredByUser) broadcastUpdateState({ status: "error", detail: msg, checkedAt: Date.now() });
+      return { status: "error", message: msg };
+    });
+  }
+
+  function nativeDownloading() {
+    try {
+      var p = JSON.parse(window.__almaAndroidUpdate.downloadProgress() || "");
+      return !!(p && p.status === "downloading");
+    } catch (e) { return false; }
+  }
+
+  function pollUpdateProgress() {
+    if (progressTimer) clearInterval(progressTimer);
+    lastProg = null;
+    progressTimer = setInterval(function () {
+      var p;
+      try { p = JSON.parse(window.__almaAndroidUpdate.downloadProgress() || ""); } catch (e) { return; }
+      if (!p || p.status !== "downloading") return; // 终态由 __almaUpdateState 驱动
+      var now = Date.now();
+      var s = { status: "downloading", transferred: p.transferred || 0 };
+      if (p.total > 0) {
+        s.total = p.total;
+        if (lastProg && now > lastProg.t && s.transferred >= lastProg.bytes) {
+          s.bytesPerSecond = Math.round((s.transferred - lastProg.bytes) * 1000 / (now - lastProg.t));
+        }
+      }
+      lastProg = { t: now, bytes: s.transferred };
+      broadcastUpdateState(s);
+    }, 800);
+  }
+  function stopUpdateProgress() {
+    if (progressTimer) { clearInterval(progressTimer); progressTimer = 0; }
+  }
+
+  // 原生回调（evaluateJavascript 只进主帧）：downloaded=安装器已拉起，
+  // permission=去授权页（APK 已就绪，回 UI 再点"安装"即可），error=下载失败。
+  window.__almaUpdateState = function (s) {
+    stopUpdateProgress();
+    broadcastUpdateState(s === "error"
+      ? { status: "error", checkedAt: Date.now() }
+      : { status: "update-downloaded", version: updateRel ? updateRel.tag.replace(/^v/i, "") : undefined, checkedAt: Date.now() });
+  };
+
+  function doUpdateDownload() {
+    // 下载已在进行（页面重载/另一帧先点过）：续上进度即可
+    if (nativeDownloading()) {
+      broadcastUpdateState({ status: "downloading" });
+      pollUpdateProgress();
+      return Promise.resolve({ success: true });
+    }
+    if (!updateRel || !updateRel.apk) {
+      // UI 先 available 才出下载键，正常不至此；兜底先查一次
+      return doUpdateCheck(false).then(function () {
+        return updateRel && updateRel.apk ? doUpdateDownload() : { success: false, error: "no-release" };
+      });
+    }
+    var r;
+    try { r = window.__almaAndroidUpdate.downloadAndInstall(updateRel.apk, updateRel.fallback || ""); }
+    catch (e) { r = "error"; }
+    if (r !== "ok") return Promise.resolve({ success: false, error: r });
+    broadcastUpdateState({ status: "downloading" });
+    pollUpdateProgress();
+    return Promise.resolve({ success: true });
+  }
+
+  // 恢复上次终态/检查结果；主帧若检测到下载仍在进行则续上进度条
+  try {
+    var s0 = lsGet(UPDATE.stateKey);
+    if (s0) { var st0 = JSON.parse(s0); if (st0 && st0.status) updateState = st0; }
+    var r0 = lsGet(UPDATE.relKey);
+    if (r0) { var rr0 = JSON.parse(r0); if (rr0 && rr0.apk) updateRel = rr0; }
+  } catch (e) {}
+  if (!inSubframe) {
+    if (nativeDownloading()) {
+      broadcastUpdateState({ status: "downloading" });
+      pollUpdateProgress();
+    } else {
+      // 启动静默检查（6h 限频；只在新版可用时露头 = 设置入口 badge）
+      setTimeout(function () {
+        var last = parseInt(lsGet(UPDATE.checkedKey), 10) || 0;
+        if (Date.now() - last >= UPDATE.interval) void doUpdateCheck(false);
+      }, 4000);
+    }
+  }
+
+  // 应用信息：真值实现。version 用 APK 壳版本（与 GitHub tag 对齐，
+  // AboutSettings 的检查更新即比较它）；renderer 版本（SENTRY_RELEASE
+  // alma@x.y.z）挪到 build。
   window.almaApp ??= {
     getInfo: function () {
       var ver = "";
@@ -265,13 +487,36 @@
         var id = (window.SENTRY_RELEASE && window.SENTRY_RELEASE.id) || "";
         ver = id.indexOf("@") > -1 ? id.split("@")[1] : id;
       } catch (e) {}
-      return Promise.resolve({ name: "Alma", version: ver, build: "", platform: PLATFORM, arch: "android" });
+      return Promise.resolve({
+        name: "Alma",
+        version: shellVersion() || ver,
+        build: ver,
+        platform: PLATFORM, arch: "android",
+        autoUpdateSupported: true,
+        autoUpdateStatus: updateState
+      });
     },
     getVersion: function () {
       return this.getInfo().then(function (i) { return i.version; });
     },
-    checkForUpdates: function () { return Promise.resolve({ available: false, version: null }); },
-    getUpdateInfo: function () { return Promise.resolve({ available: false, version: null }); },
+    checkForUpdates: function () { return doUpdateCheck(true); },
+    downloadUpdate: function () { return doUpdateDownload(); },
+    quitAndInstall: function () {
+      try { window.__almaAndroidUpdate.launchInstaller(); } catch (e) {}
+    },
+    onAutoUpdateStatus: function (cb) {
+      if (typeof cb !== "function") return function () {};
+      updateListeners.push(cb);
+      return function () {
+        var i = updateListeners.indexOf(cb);
+        if (i > -1) updateListeners.splice(i, 1);
+      };
+    },
+    getUpdateInfo: function () {
+      return Promise.resolve(updateRel
+        ? { available: isNewer(updateRel.tag, shellVersion()), version: updateRel.tag, notes: updateRel.notes || "" }
+        : { available: false, version: null });
+    },
     quit: noop, relaunch: noop
   };
 

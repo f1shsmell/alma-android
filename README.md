@@ -87,6 +87,26 @@ alma-android/
 
 **语言**：首启跟随系统语言；设置 → 外观下方可切换 跟随系统 / English / 中文 / 日本語，选择立即生效并持久化。
 
+## 应用内更新（自动检查 + 手动安装）
+
+renderer 自带完整 updater UI（设置 → 关于：状态行/进度条/重启确认，桌面 badge 同款逻辑），shim 把它的 `window.almaApp` autoUpdate 协议接到真实现：
+
+- **检查**：启动静默检查（6 小时限频，发现新版才亮 badge）；设置 → 关于 → Check for updates 手动检查。先查 GitHub API `releases/latest`，直连失败（国内网络）自动改走镜像读仓库根 `latest.json`。
+- **下载**：原生 `DownloadManager`（通知栏可见、断点续传），直连失败用镜像 URL 重试一次；完成经 FileProvider 拉起系统安装器。Android 8+ 首次会引导「安装未知应用」授权，授权后回 App 再点一次安装即可。
+- **版本**：壳 `versionName`（与 GitHub tag 对齐）为权威；About 页显示的版本即它，renderer 版本在 build 字段。
+- **镜像可配**：默认 `https://mirror.ghproxy.com/`；改 localStorage `alma.android.update.mirror` 可换前缀，置空串禁用镜像（只走直连）。
+
+发布用 `scripts/release.sh`（见下节），它会重写 `latest.json` 随 main 推送 —— 镜像兜底源永远和最新 Release 一致。
+
+## 发布
+
+```bash
+bash scripts/release.sh [版本号] [发布说明]
+# 例：bash scripts/release.sh 1.4.0 "修复 XX；新增 YY"
+```
+
+一条龙：回归测试三件套（全绿才继续，对齐「测试不过不提交」）→ 递增 `versionCode/versionName` → `assembleDebug` → 同步 `../apk-serve/` → 写 `latest.json` → commit + tag + push → `gh release create`（附 `alma-android-vX.Y.Z.apk`）。版本号缺省 = patch 位 +1。
+
 ## 升级到新版 Alma
 
 `www/` 提交的是**已打补丁的最终态**，日常构建不需要重新生成。Alma 发新版时：

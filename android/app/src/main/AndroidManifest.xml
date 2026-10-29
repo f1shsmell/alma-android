@@ -6,6 +6,8 @@
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <!-- 剪贴板读取（Android 10+ 对后台剪贴板有限制，前台读取不受影响） -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- 应用内自更新：下载 APK 后拉起系统安装器（Android 8+ 需用户授予"安装未知应用"） -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
         android:allowBackup="true"
