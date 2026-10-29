@@ -117,6 +117,11 @@
   // Android 返回键由 MainActivity 原生侧调 window.__almaAndroidBack() 接管。
   var inSubframe = false;
   try { inSubframe = window.parent && window.parent !== window; } catch (e) {}
+  // 清掉上次会话遗留的延迟重载标记（正常路径设置层关闭时就已消费；异常退出
+  // ——如忘记后直接杀进程—— 标记已无意义：本次启动本身已按新 backendMode 自举）
+  if (!inSubframe) {
+    try { localStorage.removeItem("alma.android.pendingMainReload"); } catch (e) {}
+  }
 
   // ── 设置层（iframe）专属修复 ─────────────────────────────────────
   if (inSubframe) {
@@ -133,12 +138,24 @@
       }
     } catch (e) {}
     // 配对/忘记/切换运行模式都发生在设置层内：setBackendMode 只派发本帧事件，
-    // applyPairingLink 的 location.reload() 也只重载 iframe —— 把"运行模式已提交"
-    // （backend-mode-changed，applyPairingLink 里位于 setE2EConfig 之后的提交点）
-    // 转发给宿主整页重载。注意不转发 e2e-config-changed：它先于 setBackendMode
-    // 触发，此时重载会截断流程，留下半配对状态。
-    window.addEventListener("alma:ios:backend-mode-changed", function () {
-      try { window.parent.postMessage({ type: "alma-android-reload-main" }, "*"); } catch (e) {}
+    // applyPairingLink 的 location.reload() 也只重载 iframe。
+    //   → remote（配对/切到我的 Mac）：转发宿主整页重载 —— 主应用必须以连接态重启。
+    //   → local（忘记这台 Mac / 切回本机）：不打断用户！立即重载会把用户从设置层
+    //     踢回对话页（v0.4.213-6 实测反馈）。改为记 pending 标记，等设置层关闭
+    //     （完成/原生返回，都走宿主 hideSettingsFrame）再重载 —— 主应用若不重载
+    //     会残留已断开的 remote 态，重载本身省不掉，但时机放在离开设置层的瞬间。
+    // 注意不转发 e2e-config-changed：它先于 setBackendMode 触发，此时重载会截断
+    // 流程，留下半配对状态。
+    window.addEventListener("alma:ios:backend-mode-changed", function (e) {
+      var mode = e && e.detail;
+      try {
+        if (mode === "local") {
+          localStorage.setItem("alma.android.pendingMainReload", "1");
+          return;
+        }
+        localStorage.removeItem("alma.android.pendingMainReload");
+      } catch (err) {}
+      try { window.parent.postMessage({ type: "alma-android-reload-main" }, "*"); } catch (e2) {}
     });
   }
 
@@ -169,6 +186,14 @@
   function hideSettingsFrame() {
     var f = settingsFrame();
     if (f) f.style.display = "none";
+    // 断开/忘记后的延迟主文档重载（见 iframe 侧 backend-mode-changed）：设置层
+    // 关闭正好是回主界面的过渡点，此刻冷启动成本最低、用户感知最自然。
+    try {
+      if (localStorage.getItem("alma.android.pendingMainReload") === "1") {
+        localStorage.removeItem("alma.android.pendingMainReload");
+        location.reload();
+      }
+    } catch (e) {}
   }
   if (!inSubframe) {
     window.addEventListener("message", function (e) {

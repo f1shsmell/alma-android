@@ -23,7 +23,7 @@ if [ -n "$(git status --porcelain)" ]; then
   exit 1
 fi
 command -v gh >/dev/null || { echo "✗ 需要 gh CLI。" >&2; exit 1; }
-for t in cdp-e2e.mjs cdp-drawer.mjs cdp-webview-gate.mjs; do
+for t in cdp-e2e.mjs cdp-drawer.mjs cdp-webview-gate.mjs cdp-pair-nav.mjs; do
   [ -f "$TEST_DIR/$t" ] || { echo "✗ 缺少测试 $TEST_DIR/$t（可用 ALMA_TEST_DIR 覆盖路径）。" >&2; exit 1; }
 done
 
@@ -82,7 +82,7 @@ cleanup() { [ "$STARTED_SERVER" = 1 ] && kill "$SERVER_PID" 2>/dev/null || true;
 trap cleanup EXIT
 
 fail=0
-for t in cdp-webview-gate.mjs cdp-e2e.mjs cdp-drawer.mjs cdp-update.mjs; do
+for t in cdp-webview-gate.mjs cdp-e2e.mjs cdp-drawer.mjs cdp-update.mjs cdp-pair-nav.mjs; do
   [ -f "$TEST_DIR/$t" ] || continue
   echo "── $t"
   if ! node "$TEST_DIR/$t"; then fail=1; fi
