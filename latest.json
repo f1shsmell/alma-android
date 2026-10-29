@@ -1,5 +1,5 @@
 {
-  "tag": "v0.4.213-7",
-  "apk": "alma-android-v0.4.213-7.apk",
-  "notes": "Alma Android v0.4.213-7（renderer 0.4.213）。  - 修复：设置 → 我的 Mac →「忘记这台 Mac」后整层退出到对话页的问题——现在留在设置层、回到设置页，主界面在关闭设置时才刷新 - 此前 v0.4.213-6 已含：语言切换实时化、手机端检查更新入口、版本号统一"
+  "tag": "v0.4.213-8",
+  "apk": "alma-android-v0.4.213-8.apk",
+  "notes": "Alma Android v0.4.213-8（renderer 0.4.213）。"
 }
