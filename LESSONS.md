@@ -34,6 +34,9 @@
 - 用户可见版本统一为 renderer 版本（0.4.213 形态，与 Alma 桌面一致）：APK `versionName` = renderer 版本，GitHub tag = `v0.4.213`；About 页只显示一个版本号（build 留空）。
 - 壳独立修复（renderer 没变）：release.sh 自动出 `v0.4.213-<code>` 后缀 tag，应用内比较含第 4 段。
 - 曾经的 1.x 壳版本号（v1.3.0）与 renderer 版本并存，用户看到 "1.3.0 (0.4.213)" 两套版本 → 混乱，弃。
+- **后缀判定要看线上最新 tag，不能只看本地 CUR≠NEW**（v0.4.213-6 发布前修正）：build.gradle 预写成新版本号后 CUR==NEW，只比本地会漏加后缀 → 折算后相等 → 老用户收不到提示。规则 = tag 占用 **或** 对已发布最新 tag 不构成严格更新（与应用内 isNewer 同款比较，含遗留折算）。
+- **过渡死结（已知，接受）**：v1.3.0 旧 shim 是 3 段点分比较，`0.4.213-x` 数值恒小于 `1.3.0` → 老包**收不到**新形态版的自动提示，且不存在同时满足新旧两个比较器的 tag（旧要求 ≥1.x，新要求 ≤0.4.x）。v1.3.0 用户需最后一次手动安装 v0.4.213-6，此后永续自动。
+- **教训**：换版本号方案时，先审计**已发出设备的旧代码**怎么比较版本，再定新 tag 形态；两个方向的过渡（新 app 认旧号、旧 app 认新 tag）要分开验证。
 
 ## 环境事实（测试时别再踩）
 
@@ -41,6 +44,7 @@
 - `adb root` / `adb reboot` 会清掉所有 forward，要重新 `adb forward`。
 - uiautomator 看不到 WebView 内文本：权限弹窗先 `pm grant` 预授权，WebView 内容用 CDP 远程调试断言。
 - 沙箱内 kill 8778 服务会静默失败；本地端口监听/连接需非沙箱跑。
+- **addJavascriptInterface 的原生桥对象不可 JS 覆写**：真机 WebView 里 `window.__almaAndroidUpdate` 是 Java 代理，`getVersionName = () => '1.3.0'` 这类属性赋值**静默失效**（不报错、不生效）；Chrome mock 里却能覆写。要在真机验证"特定壳版本号下的行为"，唯一可靠办法是改 build.gradle 的 versionName 重打包装机（test/post-release-verify.sh 的替代法），别指望运行时覆写。
 - **测试脚本自己也会写错**：模板串里多打反引号、正则双重转义（`/settings\\.html/` 不匹配 `./settings.html`）、PNG 滤镜未解码、箭头参数作用域。测试红了先分辨是产品 bug 还是测试 bug（git stash 基线对照）。
 
 ## 观察中（未定位）
