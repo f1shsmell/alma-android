@@ -183,9 +183,15 @@
   }
 
   function settingsFrame() { return document.getElementById("alma-settings-frame"); }
+  function settingsLayerOpen() {
+    var f = settingsFrame();
+    return !!(f && f.style.display !== "none");
+  }
   function hideSettingsFrame() {
     var f = settingsFrame();
     if (f) f.style.display = "none";
+    // 层关了 pill 可以露头（若仍有新版）
+    try { ensureUpdatePill(); } catch (e) {}
     // 断开/忘记后的延迟主文档重载（见 iframe 侧 backend-mode-changed）：设置层
     // 关闭正好是回主界面的过渡点，此刻冷启动成本最低、用户感知最自然。
     try {
@@ -237,12 +243,14 @@
       } catch (e) {}
       return false;
     }
-    // 原生返回键入口（MainActivity.onBackPressed 调用）：按设置层内部层级消化 ——
-    // 在配对屏等子屛上先于 iframe 内部回退（点 renderer 自己的返回钮，走其动画与
+    // 原生返回键入口（MainActivity.onBackPressed 调用）：按层级消化 ——
+    // 更新弹窗开着先关弹窗（最顶层优先）；设置层可见时在配对屏等子屛上
+    // 先于 iframe 内部回退（点 renderer 自己的返回钮，走其动画与
     // 状态机），已在设置根页才整层关闭；两层都算已处理。都不适用才返回 false
-    // （交回原生默认行为）。v0.4.213-7 实测：一刀切关层让「配对页侧滑」直接
-    // 踹出应用（第二次返回键 = 退出 App），层级必须在这里补全。
+    // （交回原生：Web 历史回退，或默认行为）。v0.4.213-7 实测：一刀切关层让
+    // 「配对页侧滑」直接踹出应用（第二次返回键 = 退出 App），层级必须在这里补全。
     window.__almaAndroidBack = function () {
+      try { if (closeUpdateDialog()) return true; } catch (e) {}
       var f = settingsFrame();
       if (f && f.style.display !== "none") {
         if (settingsInternalBack(f)) return true;
@@ -271,6 +279,8 @@
       } else {
         f.style.display = "block";
       }
+      // 设置层盖住主界面，pill 不露头（返回键也不该打着 pill 的主意）
+      try { ensureUpdatePill(); } catch (e) {}
       return Promise.resolve();
     },
     close: function () {
@@ -572,6 +582,17 @@
     var r0 = lsGet(UPDATE.relKey);
     if (r0) { var rr0 = JSON.parse(r0); if (rr0 && rr0.apk) updateRel = rr0; }
   } catch (e) {}
+  // 陈旧终态自愈：残留 update-downloaded 对应的版本已装上（手动装新版后
+  // localStorage 与 updates/alma-update.apk 都还是旧的）→ 清回 idle。否则
+  // 设置页永远显示「已下载·重启安装」，点行把旧/坏 APK 递给系统安装器
+  // （v0.4.213-10 实机「安装包已损坏」）。原生侧 isValidUpdateApk 同款兜底。
+  try {
+    if (updateState && updateState.status === "update-downloaded"
+        && !(updateRel && updateRel.tag && isNewer(updateRel.tag, shellVersion()))) {
+      updateState = { status: "idle", checkedAt: Date.now() };
+      lsSet(UPDATE.stateKey, JSON.stringify(updateState));
+    }
+  } catch (e) {}
   if (!inSubframe) {
     if (nativeDownloading()) {
       broadcastUpdateState({ status: "downloading" });
@@ -628,6 +649,12 @@
     checkForUpdates: function () { return doUpdateCheck(true); },
     downloadUpdate: function () { return doUpdateDownload(); },
     quitAndInstall: function () {
+      // 「已下载」对应的版本已装上（手动装过新版后残留的终态）：清掉状态
+      // 回 idle，绝不把磁盘上的旧 APK 递给安装器（原生侧同款兜底会拒收）
+      if (updateRel && updateRel.tag && !isNewer(updateRel.tag, shellVersion())) {
+        broadcastUpdateState({ status: "idle", checkedAt: Date.now() });
+        return;
+      }
       try { window.__almaAndroidUpdate.launchInstaller(); } catch (e) {}
     },
     onAutoUpdateStatus: function (cb) {
@@ -652,6 +679,7 @@
   // 重挂。样式参考用户设计稿：深灰圆角 pill，↺-圈-上箭头 + 「更新」。
   function updatePillShouldShow() {
     return !inSubframe
+      && !settingsLayerOpen()
       && updateState && updateState.status === "update-available"
       && updateRel && updateRel.tag
       && lsGet(UPDATE.skipKey) !== updateRel.tag;
@@ -714,9 +742,11 @@
     return out;
   }
 
+  /** 关掉更新弹窗；@return 弹窗原本开着（调用方据此判定返回键消化）。 */
   function closeUpdateDialog() {
     var d = document.getElementById("alma-update-dialog");
-    if (d) d.remove();
+    if (d) { d.remove(); return true; }
+    return false;
   }
 
   function showUpdateDialog() {

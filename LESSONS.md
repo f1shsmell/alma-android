@@ -75,3 +75,20 @@
 - **修复**：`installUpdate()` 交安装器前 `getPackageArchiveInfo` 预检（截断 zip/HTML/空文件 → null）**且包名必须匹配本应用**；坏了删文件、自动换镜像重下（与下载失败同路径），镜像也坏才报 error。
 - **教训**：把系统组件的"成功"当数据完整性保证是错的——下载完成≠内容正确；对外来文件先验后用（解析即校验，比比对长度/哈希更省事且权威）。
 - **测试技巧**：往 `getExternalFilesDir` 塞文件——`run-as`/shell 对 `/storage/emulated/0/Android/data/<pkg>` 均无权限；`adb root` 后写 raw 路径 `/data/media/0/...` 可行（google_apis 镜像可 root）。**同一文件路径被覆写后 FUSE 视图可能陈旧读到旧内容**（换文件要 rm + force-stop 应用 + drop_caches，或干脆隔离测试）；测试钩子链式包装共享变量会让状态计数逐轮 +1（每轮 arm 都把上一轮 wrapper 当 prev 链上）——arm 要幂等替换而不是包一层。
+
+## 2026-10-30 给 React 树外面挂 UI：fixed 注入 + MutationObserver 重挂（更新 pill）
+
+- **需求**：有新版时在 renderer 左上菜单钮旁放「更新」pill + 版本说明弹窗，但 UI 是 renderer 的 React 树，不能改其源码。
+- **注入策略**：pill/弹窗 append 到 `document.body` 且 `position:fixed`——React 重渲染会**吞掉**React 根内的外来节点，body 直挂 + 几何定位（菜单钮 rect 推算 `left/top`）不受影响；`MutationObserver(childList+subtree, 250ms 防抖)` 被移除即重挂（CDP 有断言：手动 remove 700ms 内复活）。
+- **定位菜单钮**：几何特征（20–60px 宽、left<60、top<60、含 svg），不依赖文案/类名哈希。
+- **真机桥不可 mock**：`window.__almaAndroidUpdate` 是 addJavascriptInterface 注入，页内 JS **覆盖不了**——CDP/浏览器测试里 mock 有效是因为宿主是浏览器。真机侧 UI 流程只能：装新版后用 CDP（webview_devtools socket）mock `fetch` 喂假新版，或等下一个真版本。
+- **弹窗条目来自 release notes**：`updateNoteItems()` 逐行过滤（跳过 `^#` 标题、Co-Authored-By/🤖 署名行；剥 `[-*•] `/**/反引号；≤140 字、至多 8 条）——release.sh 自动取 git log 生成 notes，两端约定字段。
+- **发布后实测（AVD api33 装 -10，真实网络）**：直连 GitHub 在本机 reset → 镜像 raw latest.json 兜底成功，`rel` 落盘含双镜像 fallbacks + notes，壳=tag → 已是最新。链路端到端通。
+
+## 2026-10-30 「检查更新→安装包已损坏」复盘：陈旧终态 + 校验只查 manifest；返回键 canGoBack 判序
+
+- **陈旧终态死循环**（-10 实机复现于 AVD）：手动装新版后 localStorage 残留 `update-downloaded` + 磁盘残留旧 `alma-update.apk`。设置页按状态分派，点行=launchInstaller；-10 校验只查 manifest+包名 → **旧的有效包照样放行** → 系统安装器拿旧包报「安装包已损坏」（国产 ROM 对降级/坏包的通用文案）。修复三重：shim 启动时 rel.tag 不新于壳 → 清回 idle；quitAndInstall 同守卫；原生校验追加 versionName 严格新于当前 + 签名一致。
+- **返回键 canGoBack() 判在 JS 之前是错的**：renderer 主页面积累 pushState 历史（真机用几天必然有）后 canGoBack=true → 返回手势全被 webView.goBack() 吃掉，设置层层级逻辑永远不跑（实机「配对页侧滑退出」在 AVD 复现不了——刚装的壳没有历史）。正确优先级：JS（弹窗→设置层）→ WebView 历史 → 默认。AVD 造历史法：`history.pushState` ×2 再走 keyevent 4。
+- **弃用 DownloadManager**（社区共识 + 实测根因）：透明代理对 GitHub 资产回 200 HTML，DownloadManager 照落盘报 SUCCESSFUL。应用内 HttpURLConnection：写盘前验状态码/Content-Type/长度，第一块数据验 zip 魔数 PK，垃圾不落盘直接换镜像；.part 原子改名；代次号 dlGen 让旧线程让位。
+- **AVD 实测事实**：api33 镜像拉起 PackageInstaller 会把 qemu 整个带崩（连崩 3 次的元凶），api30 正常——安装器全链测试用 api30；WebView localStorage 是异步落盘，force-stop 会丢，seed 后必须 location.reload() 触发提交；`cleartext` 白名单走 network_security_config（仅 10.0.2.2），本地 http.server 8808 当下载源。
+- **测试基建坑**：模拟器连环崩时把 8778 静态服务一并带走 → 一串 CDP 套件假失败（no-button/NO_FRAME），先查服务再怀疑代码；qemu 进程名是 qemu-system-x86_64，pkill "emulator" 杀不掉。

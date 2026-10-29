@@ -1,14 +1,10 @@
 package local.almaandroid.app;
 
 import android.Manifest;
-import android.app.DownloadManager;
-import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
-import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
-import android.database.Cursor;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
@@ -27,6 +23,9 @@ import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
 import com.getcapacitor.BridgeActivity;
 import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.util.Collections;
 import java.util.Locale;
 
@@ -53,11 +52,12 @@ public class MainActivity extends BridgeActivity {
 
     private WebView webView;
 
-    /** 自更新：进行中的 DownloadManager 任务 id（-1 = 无）。 */
-    private long updateDownloadId = -1;
-    /** 主下载地址失败后的镜像重试地址（JS 传入，一次性）。 */
-    private String updateFallbackUrl;            // 兼容旧调用（单值）；新调用走队列
-    /** 下载兜底镜像队列（按序换：下载失败 / 文件无效时取下一个）。 */
+    /** 下载状态（shim 轮询进度用）：none|downloading|failed。 */
+    private volatile String dlStatus = "none";
+    private volatile long dlBytes = 0, dlTotal = -1;
+    /** 下载代次号：新一轮 downloadAndInstall 使旧线程的镜像重试链失效。 */
+    private volatile int dlGen = 0;
+    /** 镜像重试队列（按序换：下载失败 / 文件无效时取下一个）。 */
     private final java.util.ArrayDeque<String> updateFallbacks = new java.util.ArrayDeque<>();
 
     private final androidx.activity.result.ActivityResultLauncher<String> cameraPermission =
@@ -105,17 +105,11 @@ public class MainActivity extends BridgeActivity {
             // 同上
         }
 
-        // 应用内自更新：DownloadManager 完成广播 → 拉起系统安装器。
-        // 必须导出注册：广播由 DownloadProvider（Mainline 模块进程）发出，
-        // Android 14+ 会把 NOT_EXPORTED 接收器对它的投递当"其他应用"拦掉
-        // （AVD 实测：下载失败后无任何回调，UI 卡在下载中）。该广播是
-        // protected broadcast，仅系统可发，导出注册无伪造风险。
-        IntentFilter doneFilter = new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE);
-        if (Build.VERSION.SDK_INT >= 33) {
-            registerReceiver(updateReceiver, doneFilter, Context.RECEIVER_EXPORTED);
-        } else {
-            registerReceiver(updateReceiver, doneFilter);
-        }
+        // 应用内自更新：下载完成后通过 FileProvider 拉起系统安装器。
+        // v0.4.213-11 起弃用系统 DownloadManager：透明代理/部分 ROM 的
+        // DownloadManager 会把 200 的 HTML 错误页当 APK 落盘（实机
+        // 「安装包已损坏」，SUCCESSFUL ≠ 文件有效）。改为应用内
+        // HttpURLConnection 直下：写盘前校验状态码/Content-Type/zip 魔数。
     }
 
     // ── 主题底色 / 系统栏外观 ────────────────────────────────────────────
@@ -196,66 +190,158 @@ public class MainActivity extends BridgeActivity {
 
     // ── 应用内自更新 ────────────────────────────────────────────────────
 
+    /** 取下一个兜底镜像；队列空返回 null。 */
+    private String nextUpdateFallback() {
+        return updateFallbacks.poll();
+    }
+
     /**
-     * 更新下载完成广播：成功 → 通过 FileProvider 拉起系统安装器；失败 →
-     * 用镜像地址重试一次（GitHub 直连在国内常超时）。终态经
-     * window.__almaUpdateState 回调给 shim（设置页"检查更新"行状态机）。
+     * 应用内 APK 下载（HttpURLConnection，后台线程）。系统 DownloadManager
+     * 在国内网络/部分 ROM 上会拿到 200 的 HTML 错误页当 APK 落盘（实机
+     * 「安装包已损坏」），故自己下：响应不是 APK 就换下一个镜像，
+     * 垃圾永远不落盘。写 alma-update.apk.part，成功后原子改名。
      */
-    private final BroadcastReceiver updateReceiver = new BroadcastReceiver() {
-        @Override
-        public void onReceive(Context context, Intent intent) {
-            long id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1);
-            android.util.Log.d("almaUpdate", "broadcast id=" + id + " current=" + updateDownloadId);
-            if (id == -1 || id != updateDownloadId) return;
-            updateDownloadId = -1;
-            DownloadManager dm = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
-            Cursor c = null;
-            try {
-                c = dm.query(new DownloadManager.Query().setFilterById(id));
-                if (c == null || !c.moveToFirst()) return;
-                int col = c.getColumnIndex(DownloadManager.COLUMN_STATUS);
-                int status = col >= 0 ? c.getInt(col) : DownloadManager.STATUS_FAILED;
-                android.util.Log.d("almaUpdate", "download complete id=" + id + " status=" + status);
-                if (status == DownloadManager.STATUS_SUCCESSFUL) {
-                    installUpdate(); // 内部回调 downloaded / permission / error；坏文件自动换镜像
-                } else {
-                    String fb = nextUpdateFallback();
-                    if (fb != null) startUpdateDownload(fb);
-                    else notifyUpdateState("error");
+    private void startUpdateDownload(String url) {
+        final int gen = ++dlGen;
+        dlStatus = "downloading";
+        dlBytes = 0;
+        dlTotal = -1;
+        new Thread(() -> {
+            String u = url;
+            while (u != null) {
+                if (gen != dlGen) return; // 新一轮下载已开始，旧链让位
+                if (downloadToFile(u, gen)) {
+                    dlStatus = "none";
+                    runOnUiThread(this::installUpdate);
+                    return;
                 }
-            } finally {
-                if (c != null) c.close();
+                u = nextUpdateFallback();
+            }
+            dlStatus = "failed";
+            runOnUiThread(() -> notifyUpdateState("error"));
+        }, "alma-update-dl").start();
+    }
+
+    /** 单地址下载到 .part；响应不是 APK（HTML 错误页/重定向链坏/截断）即判失败。 */
+    private boolean downloadToFile(String url, int gen) {
+        java.net.HttpURLConnection c = null;
+        try {
+            File dir = getExternalFilesDir("updates");
+            if (dir == null) throw new IOException("no-updates-dir");
+            if (!dir.exists() && !dir.mkdirs()) throw new IOException("no-dir");
+            File part = new File(dir, "alma-update.apk.part");
+            File apk = new File(dir, "alma-update.apk");
+            c = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+            c.setInstanceFollowRedirects(true);
+            c.setConnectTimeout(15000);
+            c.setReadTimeout(30000);
+            c.setRequestProperty("User-Agent", "AlmaAndroid-Updater");
+            int code = c.getResponseCode();
+            String ctype = c.getContentType();
+            long clen = c.getContentLengthLong();
+            // GitHub 资产 ≈ 39MB：错误页/JSON 都远小于 1MB，且 HTML 明确不是包
+            boolean looksHtml = ctype != null && ctype.toLowerCase(java.util.Locale.ROOT).contains("text/html");
+            if (code != 200 || looksHtml || (clen >= 0 && clen < 1024L * 1024L)) {
+                throw new IOException("bad-response " + code + " " + ctype + " len=" + clen);
+            }
+            try (java.io.InputStream in = c.getInputStream();
+                 java.io.OutputStream out = new java.io.FileOutputStream(part)) {
+                byte[] buf = new byte[65536];
+                int n;
+                long wrote = 0;
+                boolean first = true;
+                while ((n = in.read(buf)) > 0) {
+                    // zip 魔数 PK：第一块数据就验，HTML/网关页即刻拒收不落盘
+                    if (first) {
+                        if (n < 4 || buf[0] != 'P' || buf[1] != 'K') throw new IOException("not-zip");
+                        first = false;
+                    }
+                    out.write(buf, 0, n);
+                    wrote += n;
+                    if (clen > 0) dlTotal = clen;
+                    dlBytes = wrote;
+                    if (gen != dlGen) throw new IOException("superseded");
+                }
+                out.flush();
+            }
+            if (part.length() < 1024L * 1024L) throw new IOException("too-small");
+            // 原子替换：新 inode，规避 FUSE 对同名覆盖的陈旧读
+            if (apk.exists() && !apk.delete()) throw new IOException("no-delete");
+            if (!part.renameTo(apk)) throw new IOException("no-rename");
+            android.util.Log.d("almaUpdate", "downloaded " + url + " -> " + apk.length() + "B");
+            return true;
+        } catch (Throwable t) {
+            android.util.Log.d("almaUpdate", "download failed " + url + ": " + t);
+            return false;
+        } finally {
+            if (c != null) c.disconnect();
+        }
+    }
+
+    /** 版本号 → [a,b,c,d]（同 shim isNewer：split [.+-]，1.x 遗留折算 0.4.213）。 */
+    private static int[] parseVer(String v) {
+        String t = v == null ? "" : v.trim();
+        if (t.startsWith("v") || t.startsWith("V")) t = t.substring(1);
+        String[] parts = t.split("[.+-]");
+        int[] out = new int[4];
+        for (int i = 0; i < 4 && i < parts.length; i++) {
+            try {
+                out[i] = Integer.parseInt(parts[i]);
+            } catch (Throwable e) {
+                out[i] = 0;
             }
         }
-    };
-
-    /** 取下一个兜底镜像；队列空返回 null（兼容旧 shim 的单值 fallback）。 */
-    private String nextUpdateFallback() {
-        if (!updateFallbacks.isEmpty()) return updateFallbacks.poll();
-        String legacy = updateFallbackUrl;
-        updateFallbackUrl = null;
-        return legacy;
+        // 1.x 壳随包 renderer 都是 0.4.213（与应用内 isNewer 同款折算）
+        if (out[0] == 1 && out[1] >= 0 && (out[1] > 0 || out[2] > 0)) {
+            int suffix = out[3];
+            out = new int[]{0, 4, 213, 0};
+            out[3] = suffix;
+        }
+        return out;
     }
 
-    /** 通知栏可见的 APK 下载（DownloadManager，断点续传由系统管理）。 */
-    private void startUpdateDownload(String url) {
-        DownloadManager dm = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
-        DownloadManager.Request req = new DownloadManager.Request(Uri.parse(url));
-        req.setTitle(getString(R.string.title_activity_main));
-        req.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
-        // 与 file_paths.xml 的 external-files-path "updates" 对应
-        req.setDestinationInExternalFilesDir(this, "updates", "alma-update.apk");
-        updateDownloadId = dm.enqueue(req);
+    /** candidate 是否严格新于 current。 */
+    private static boolean versionNewer(String candidate, String current) {
+        int[] a = parseVer(candidate), b = parseVer(current);
+        for (int i = 0; i < 4; i++) {
+            if (a[i] != b[i]) return a[i] > b[i];
+        }
+        return false;
     }
 
-    /** APK 完整性预检：可被 PackageManager 解析（截断 zip / HTML / 空文件 → null）且包名匹配。 */
+    /**
+     * APK 完整性预检（交安装器前的最后一关）：
+     * ① 可被 PackageManager 解析（截断 zip / HTML / 空文件 → null）；
+     * ② 包名是本应用；
+     * ③ versionName 严格新于当前运行版本 —— 手动装过新版后残留的旧
+     *    alma-update.apk 曾穿过仅查 manifest 的校验直达系统安装器
+     *    （OPPO 实机报「安装包已损坏」，v0.4.213-10）；
+     * ④ 签名与已装应用一致（垃圾包/重打包拒收）。
+     */
     private boolean isValidUpdateApk(File apk) {
         try {
+            PackageManager pm = getPackageManager();
             android.content.pm.PackageInfo pi =
-                    getPackageManager().getPackageArchiveInfo(apk.getPath(), 0);
+                    pm.getPackageArchiveInfo(apk.getPath(), PackageManager.GET_SIGNATURES);
             boolean ok = pi != null && getPackageName().equals(pi.packageName);
-            android.util.Log.d("almaUpdate", "validate " + apk.length() + "B pkg="
-                    + (pi == null ? "null" : pi.packageName) + " -> " + ok);
+            String why = ok ? "" : (pi == null ? "unparseable" : "pkg-mismatch");
+            if (ok) {
+                String cur = pm.getPackageInfo(getPackageName(), 0).versionName;
+                if (!versionNewer(pi.versionName, cur)) {
+                    ok = false;
+                    why = "stale " + pi.versionName + " <= " + cur;
+                }
+            }
+            if (ok) {
+                android.content.pm.Signature[] as = pi.signatures;
+                android.content.pm.Signature[] bs =
+                        pm.getPackageInfo(getPackageName(), PackageManager.GET_SIGNATURES).signatures;
+                ok = as != null && as.length > 0 && bs != null && bs.length > 0
+                        && as[0].equals(bs[0]);
+                if (!ok) why = "signature-mismatch";
+            }
+            android.util.Log.d("almaUpdate", "validate " + apk.length() + "B v="
+                    + (pi == null ? "?" : pi.versionName) + " -> " + ok + (ok ? "" : " (" + why + ")"));
             return ok;
         } catch (Throwable t) {
             android.util.Log.d("almaUpdate", "validate threw " + t);
@@ -269,10 +355,8 @@ public class MainActivity extends BridgeActivity {
      * 不一的 ActivityNotFoundException 兜底更可控），授权后回设置页
      * 再点一次"安装"即可。
      *
-     * 下载"成功"≠文件有效：透明代理/门户可能对 GitHub 资产返回 200 的
-     * HTML 错误页，DownloadManager 照报 SUCCESSFUL（v0.4.213-8 实机
-     * "安装包已损坏"）。交安装器前先验：APK 可解析且包名是本应用；
-     * 坏了删掉走镜像重试（与下载失败同一路径），镜像也坏才报 error。
+     * 下载"成功"≠文件有效（见 isValidUpdateApk）：坏了删掉走镜像重试
+     * （与下载失败同一路径），镜像也坏才报 error。
      */
     private void installUpdate() {
         File dir = getExternalFilesDir("updates");
@@ -328,10 +412,9 @@ public class MainActivity extends BridgeActivity {
     }
 
     /**
-     * 自更新通道：window.almaUpdate 读壳版本（versionName 以 PackageManager
-     * 为权威 —— BuildConfig 在 AGP 8 默认不生成）、发起下载。调用来自
-     * WebView 的 JS 线程；DownloadManager 入队线程安全，安装动作在完成
-     * 广播（主线程）里做。
+     * 自更新通道：window.__almaAndroidUpdate 读壳版本（versionName 以
+     * PackageManager 为权威 —— BuildConfig 在 AGP 8 默认不生成）、发起下载。
+     * 调用来自 WebView 的 JS 线程；下载在后台线程，安装动作回主线程。
      */
     public class UpdateBridge {
         @JavascriptInterface
@@ -350,9 +433,8 @@ public class MainActivity extends BridgeActivity {
                 String u = url == null ? "" : url.trim();
                 if (!u.startsWith("http")) return "bad-url";
                 updateFallbacks.clear();
-                updateFallbackUrl = null;
                 String fb = fallback == null ? "" : fallback.trim();
-                // 新协议：JSON 数组（镜像链，按序换）；旧协议：单个 URL
+                // 镜像链（JSON 数组，按序换）；旧协议单 URL 兼容
                 if (fb.startsWith("[")) {
                     org.json.JSONArray arr = new org.json.JSONArray(fb);
                     for (int i = 0; i < arr.length(); i++) {
@@ -370,36 +452,20 @@ public class MainActivity extends BridgeActivity {
         }
 
         /**
-         * 下载进度（shim 轮询渲染进度条）。STATUS_PAUSED（断网/等待网络）也
-         * 报 "downloading"——对用户而言任务仍在进行，避免进度条闪烁。
+         * 下载进度（shim 轮询渲染进度条）。终态由 __almaUpdateState 推送，
+         * 这里只报进度与 transient failed（shim 连续 3 次 failed 的兜底仍有效）。
          */
         @JavascriptInterface
         public String downloadProgress() {
-            try {
-                if (updateDownloadId == -1) return "{\"status\":\"none\"}";
-                DownloadManager dm = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
-                Cursor c = dm.query(new DownloadManager.Query().setFilterById(updateDownloadId));
-                try {
-                    if (c == null || !c.moveToFirst()) return "{\"status\":\"none\"}";
-                    int sCol = c.getColumnIndex(DownloadManager.COLUMN_STATUS);
-                    int dCol = c.getColumnIndex(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR);
-                    int tCol = c.getColumnIndex(DownloadManager.COLUMN_TOTAL_SIZE_BYTES);
-                    int rCol = c.getColumnIndex(DownloadManager.COLUMN_REASON);
-                    int st = sCol >= 0 ? c.getInt(sCol) : -1;
-                    long done = dCol >= 0 ? c.getLong(dCol) : 0;
-                    long total = tCol >= 0 ? c.getLong(tCol) : -1;
-                    int reason = rCol >= 0 ? c.getInt(rCol) : 0;
-                    String name = st == DownloadManager.STATUS_RUNNING
-                            || st == DownloadManager.STATUS_PAUSED ? "downloading"
-                            : st == DownloadManager.STATUS_SUCCESSFUL ? "successful" : "failed";
-                    return "{\"status\":\"" + name + "\",\"transferred\":" + done
-                            + ",\"total\":" + total + ",\"reason\":" + reason + "}";
-                } finally {
-                    if (c != null) c.close();
-                }
-            } catch (Throwable t) {
-                return "{\"status\":\"none\"}";
+            String s = dlStatus;
+            if ("downloading".equals(s)) {
+                return "{\"status\":\"downloading\",\"transferred\":" + dlBytes
+                        + ",\"total\":" + dlTotal + "}";
             }
+            if ("failed".equals(s)) {
+                return "{\"status\":\"failed\"}";
+            }
+            return "{\"status\":\"none\"}";
         }
 
         /** 「重启安装」键：重新拉起安装器（首次弹窗可能被取消）。 */
@@ -411,33 +477,36 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     public void onDestroy() {
-        try {
-            unregisterReceiver(updateReceiver);
-        } catch (Throwable t) {
-            // 未注册时忽略
-        }
+        dlGen++; // 令进行中的下载线程让位
         super.onDestroy();
     }
 
     /**
-     * 返回键：设置层为同文档 iframe（shim 管理，无页面导航），
-     * WebView 的历史栈不反映它的开合 —— 先问 JS 是否由设置层消化；
-     * 否则按 Capacitor 默认（Web 历史可回退则回退，否则默认行为）。
+     * 返回键。层级优先级（v0.4.213-11 修正：原先 canGoBack() 判在 JS 之前，
+     * renderer 主页面积累过 pushState 历史后（用几天的真机必然如此），
+     * 返回手势全被 WebView.goBack() 吃掉，设置层/弹窗的消化逻辑没机会
+     * 跑 —— 实机表现为「配对页侧滑直接退出应用」回归）：
+     * ① JS 消化（更新弹窗 → 设置层 iframe 内部回退 → 关设置层）；
+     * ② WebView 自身历史（renderer 模态等 pushState）；
+     * ③ 默认行为（退出）。
      */
     @Override
     public void onBackPressed() {
         WebView wv = webView != null ? webView
                 : (getBridge() != null ? getBridge().getWebView() : null);
-        if (wv != null && !wv.canGoBack()) {
-            // evaluateJavascript 的回调在 UI 线程执行；JS 未消化则走默认返回行为
+        if (wv != null) {
+            // evaluateJavascript 的回调在 UI 线程执行
             wv.evaluateJavascript(
                 "(window.__almaAndroidBack ? window.__almaAndroidBack() : false)",
                 new android.webkit.ValueCallback<String>() {
                     @Override
                     public void onReceiveValue(String value) {
-                        if (!"true".equals(value)) {
-                            MainActivity.super.onBackPressed();
+                        if ("true".equals(value)) return; // JS 已按层级消化
+                        if (wv.canGoBack()) {
+                            wv.goBack();
+                            return;
                         }
+                        MainActivity.super.onBackPressed();
                     }
                 });
             return;
