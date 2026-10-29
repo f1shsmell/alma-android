@@ -94,7 +94,7 @@ renderer 自带完整 updater UI（设置 → 关于：状态行/进度条/重�
 - **检查**：启动静默检查（6 小时限频，发现新版才亮 badge）；设置 → 关于 → Check for updates 手动检查。先查 GitHub API `releases/latest`，直连失败（国内网络）自动改走镜像读仓库根 `latest.json`。
 - **下载**：原生 `DownloadManager`（通知栏可见、断点续传），直连失败用镜像 URL 重试一次；完成经 FileProvider 拉起系统安装器。Android 8+ 首次会引导「安装未知应用」授权，授权后回 App 再点一次安装即可。
 - **版本**：壳 `versionName`（与 GitHub tag 对齐）为权威；About 页显示的版本即它，renderer 版本在 build 字段。
-- **镜像可配**：默认 `https://mirror.ghproxy.com/`；改 localStorage `alma.android.update.mirror` 可换前缀，置空串禁用镜像（只走直连）。
+- **镜像可配**：默认 `https://gh-proxy.com/`；改 localStorage `alma.android.update.mirror` 可换前缀，置空串禁用镜像（只走直连）。
 
 发布用 `scripts/release.sh`（见下节），它会重写 `latest.json` 随 main 推送 —— 镜像兜底源永远和最新 Release 一致。
 

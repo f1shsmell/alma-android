@@ -103,10 +103,14 @@ public class MainActivity extends BridgeActivity {
             // 同上
         }
 
-        // 应用内自更新：DownloadManager 完成广播 → 拉起系统安装器
+        // 应用内自更新：DownloadManager 完成广播 → 拉起系统安装器。
+        // 必须导出注册：广播由 DownloadProvider（Mainline 模块进程）发出，
+        // Android 14+ 会把 NOT_EXPORTED 接收器对它的投递当"其他应用"拦掉
+        // （AVD 实测：下载失败后无任何回调，UI 卡在下载中）。该广播是
+        // protected broadcast，仅系统可发，导出注册无伪造风险。
         IntentFilter doneFilter = new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE);
         if (Build.VERSION.SDK_INT >= 33) {
-            registerReceiver(updateReceiver, doneFilter, Context.RECEIVER_NOT_EXPORTED);
+            registerReceiver(updateReceiver, doneFilter, Context.RECEIVER_EXPORTED);
         } else {
             registerReceiver(updateReceiver, doneFilter);
         }
@@ -199,6 +203,7 @@ public class MainActivity extends BridgeActivity {
         @Override
         public void onReceive(Context context, Intent intent) {
             long id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1);
+            android.util.Log.d("almaUpdate", "broadcast id=" + id + " current=" + updateDownloadId);
             if (id == -1 || id != updateDownloadId) return;
             updateDownloadId = -1;
             DownloadManager dm = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
@@ -208,6 +213,7 @@ public class MainActivity extends BridgeActivity {
                 if (c == null || !c.moveToFirst()) return;
                 int col = c.getColumnIndex(DownloadManager.COLUMN_STATUS);
                 int status = col >= 0 ? c.getInt(col) : DownloadManager.STATUS_FAILED;
+                android.util.Log.d("almaUpdate", "download complete id=" + id + " status=" + status);
                 if (status == DownloadManager.STATUS_SUCCESSFUL) {
                     installUpdate(); // 内部回调 downloaded / permission / error
                 } else if (updateFallbackUrl != null) {
@@ -328,14 +334,16 @@ public class MainActivity extends BridgeActivity {
                     int sCol = c.getColumnIndex(DownloadManager.COLUMN_STATUS);
                     int dCol = c.getColumnIndex(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR);
                     int tCol = c.getColumnIndex(DownloadManager.COLUMN_TOTAL_SIZE_BYTES);
+                    int rCol = c.getColumnIndex(DownloadManager.COLUMN_REASON);
                     int st = sCol >= 0 ? c.getInt(sCol) : -1;
                     long done = dCol >= 0 ? c.getLong(dCol) : 0;
                     long total = tCol >= 0 ? c.getLong(tCol) : -1;
+                    int reason = rCol >= 0 ? c.getInt(rCol) : 0;
                     String name = st == DownloadManager.STATUS_RUNNING
                             || st == DownloadManager.STATUS_PAUSED ? "downloading"
                             : st == DownloadManager.STATUS_SUCCESSFUL ? "successful" : "failed";
                     return "{\"status\":\"" + name + "\",\"transferred\":" + done
-                            + ",\"total\":" + total + "}";
+                            + ",\"total\":" + total + ",\"reason\":" + reason + "}";
                 } finally {
                     if (c != null) c.close();
                 }
@@ -344,7 +352,7 @@ public class MainActivity extends BridgeActivity {
             }
         }
 
-        /** "update-downloaded" 后 UI 的"重启安装"键：重新拉起安装器（首次弹窗可能被取消）。 */
+        /** 「重启安装」键：重新拉起安装器（首次弹窗可能被取消）。 */
         @JavascriptInterface
         public void launchInstaller() {
             runOnUiThread(() -> installUpdate());

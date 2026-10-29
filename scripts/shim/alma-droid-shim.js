@@ -271,7 +271,8 @@
     checkedKey: "alma.android.update.checkedAt",
     stateKey: "alma.android.update.state",     // 终态（设置层 iframe 启动时取）
     relKey: "alma.android.update.rel",         // 最近一次检查结果（tag/apk/fallback）
-    defaultMirror: "https://mirror.ghproxy.com/",
+    // 2026-10 实测：gh-proxy.com 可用（资产 + raw）；旧默认 mirror.ghproxy.com 已失效
+    defaultMirror: "https://gh-proxy.com/",
     interval: 6 * 60 * 60 * 1000               // 启动静默检查限频
   };
   var updateState = { status: "idle" };
@@ -279,6 +280,7 @@
   var updateRel = null;        // { tag, apk, fallback, notes }
   var progressTimer = 0;
   var lastProg = null;         // { t, bytes } 速度估算
+  var pollFailCount = 0;       // 连续 failed 计数（广播丢失兜底）
 
   function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
   function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
@@ -405,11 +407,22 @@
 
   function pollUpdateProgress() {
     if (progressTimer) clearInterval(progressTimer);
-    lastProg = null;
+    lastProg = null; pollFailCount = 0;
     progressTimer = setInterval(function () {
       var p;
       try { p = JSON.parse(window.__almaAndroidUpdate.downloadProgress() || ""); } catch (e) { return; }
-      if (!p || p.status !== "downloading") return; // 终态由 __almaUpdateState 驱动
+      if (!p) return;
+      if (p.status === "failed") {
+        // 兜底：完成广播丢失（个别 ROM / 进程回收）时连续 failed 也终态化，
+        // 避免 UI 永远"下载中"；正常路径由原生广播转 error 或镜像重试。
+        if (++pollFailCount >= 3) {
+          stopUpdateProgress();
+          broadcastUpdateState({ status: "error", checkedAt: Date.now() });
+        }
+        return;
+      }
+      pollFailCount = 0;
+      if (p.status !== "downloading") return; // 终态由 __almaUpdateState 驱动
       var now = Date.now();
       var s = { status: "downloading", transferred: p.transferred || 0 };
       if (p.total > 0) {

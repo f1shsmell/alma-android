@@ -64,9 +64,12 @@ done
 if [ "$fail" = 1 ]; then echo "✗ 测试未全绿，中止（未提交任何内容）。" >&2; exit 1; fi
 echo "✓ 回归测试全绿"
 
-# ── 3. 写版本号 + 构建 APK ──────────────────────────────────────────
+# ── 3. 写版本号 + 同步 web 资产 + 构建 APK ──────────────────────────
 sed -i '' -e "s/versionCode $CUR_CODE/versionCode $NEW_CODE/" \
           -e "s/versionName \"$CUR_NAME\"/versionName \"$NEW_NAME\"/" "$GRADLE_FILE"
+# assets/public 不进 git：www/ 改动必须同步进去，否则打出旧 web 层
+echo "▶ cap sync android（www → assets/public）"
+( cd "$ROOT" && npx cap sync android )
 echo "▶ gradle assembleDebug（JDK $JAVA_HOME）"
 ( cd "$GRADLE" && ./gradlew -q assembleDebug )
 APK="$GRADLE/app/build/outputs/apk/debug/app-debug.apk"
