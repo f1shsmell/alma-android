@@ -58,3 +58,12 @@
 ## 观察中（未定位）
 
 - 2026-10-29 用户报告：relay 已连 Mac 但模型/思考强度/历史对话全部消失，「连接中…」卡住 —— 数分钟后自愈。代码层排查无版本握手/门控消费 `almaApp.version`，疑似中继服务器或 Mac 端瞬时状态。再遇时先抓：chrome://inspect console 报错、Mac 端 Alma 版本号、`relay.alma.now` WebSocket 状态。
+
+## 2026-10-29 返回键不认 iframe 内部层级：配对页侧滑两次直接退出 App
+
+- **现象**（v0.4.213-7 OPPO 实机反馈）：设置 → 我的 Mac 配对页侧滑返回，预期回设置页，实际被退出 Alma 应用。
+- **根因**（AVD keyevent 4 逐步实证）：`__almaAndroidBack` 只认「设置层 iframe 可见」一刀切关整层——返回键第一次把配对屏连着设置层全关（用户看到"退出到对话页"），第二次 `canGoBack()=false` + JS 返回 false → `super.onBackPressed()` → Activity 结束 → **退出 App**。手机上连续两次侧滑被感知为"直接退出"。
+- **实验要点**：设置层 iframe 的加载**不进** WebView 历史栈（`Page.getNavigationHistory` 恒 1 条）→ `canGoBack()` 恒 false → 返回键永远走 JS 路径，修 shim 即可，原生侧不用动。
+- **修复**：`__almaAndroidBack` 实现层级链——detail Pane 已推出时先点 renderer 自己的返回钮（iframe 内部回退，走其滑动动画与状态机），已在根页才整层关闭。
+- **语言无关的 DOM 锚点**（设置页中/英/日三语，文案匹配不可靠）：renderer 返回钮 = ChevronLeft `svg` + 头部样式 `pl-1`/`pr-2`（Tailwind 工具类名不随构建哈希）；**detail Pane 的 `aria-hidden` 直接由 `pushed`（`section !== null`）驱动**——`false` = 子屛当前推出，`true` = 已收回，是比 rect/transform 更干净的判定（React 渲染同步翻转，无动画中间态）。
+- **教训**：宿主给 iframe 盖了一层导航时，返回键的处理必须穿透到 iframe 内部层级，否则用户的"返回"语义会在某一层被吞掉整层；找 DOM 锚点优先看 aria 属性/结构/工具类名，别用文案。

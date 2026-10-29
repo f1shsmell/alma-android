@@ -212,10 +212,43 @@
       // 设置层切换主题：主文档即时同步（不等冷启动）
       if (e.data.type === "alma-android-theme") applyThemeToMain(e.data.theme);
     });
-    // 原生返回键入口（MainActivity.onBackPressed 调用）：设置层可见则关闭并报告已处理
+    // 设置层内部的子屛回退（我的 Mac / AI 提供商等 detail Pane）：找 renderer 的
+    // 返回钮 —— ChevronLeft 图标 + 头部样式 pl-1/pr-2（Tailwind 工具类，不随构建
+    // 哈希、语言无关）——它只渲染在 detail Pane 里；Pane 的 aria-hidden 直接由
+    // pushed（section !== null）驱动，false = 子屛当前推出。找到且已推出则点它
+    // （renderer 自己做 setSection(null) + 滑动动画）；不在子屛 / 找不到返回 false。
+    // 结构对不上时静默降级（上层会走整层关闭，即旧行为），绝不抛错。
+    function settingsInternalBack(f) {
+      try {
+        var w = f.contentWindow, d = w && w.document;
+        if (!d || !d.querySelectorAll) return false;
+        var btns = d.querySelectorAll("button");
+        for (var i = 0; i < btns.length; i++) {
+          var b = btns[i];
+          if (!b.querySelector || !b.querySelector("svg")) continue;
+          var cls = " " + (b.className || "") + " ";
+          if (cls.indexOf(" pl-1 ") < 0 || cls.indexOf(" pr-2 ") < 0) continue;
+          var pane = b.closest ? b.closest("div[aria-hidden]") : null;
+          if (!pane || (" " + pane.className + " ").indexOf(" inset-0 ") < 0) continue;
+          if (pane.getAttribute("aria-hidden") === "true") continue;
+          b.click();
+          return true;
+        }
+      } catch (e) {}
+      return false;
+    }
+    // 原生返回键入口（MainActivity.onBackPressed 调用）：按设置层内部层级消化 ——
+    // 在配对屏等子屛上先于 iframe 内部回退（点 renderer 自己的返回钮，走其动画与
+    // 状态机），已在设置根页才整层关闭；两层都算已处理。都不适用才返回 false
+    // （交回原生默认行为）。v0.4.213-7 实测：一刀切关层让「配对页侧滑」直接
+    // 踹出应用（第二次返回键 = 退出 App），层级必须在这里补全。
     window.__almaAndroidBack = function () {
       var f = settingsFrame();
-      if (f && f.style.display !== "none") { hideSettingsFrame(); return true; }
+      if (f && f.style.display !== "none") {
+        if (settingsInternalBack(f)) return true;
+        hideSettingsFrame();
+        return true;
+      }
       return false;
     };
   }
