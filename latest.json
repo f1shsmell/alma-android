@@ -1,5 +1,5 @@
 {
-  "tag": "v1.2.0",
-  "apk": "alma-android-v1.2.0.apk",
-  "notes": "屏闪修复、老 WebView 门槛页、Android 15 edge-to-edge 适配。"
+  "tag": "v1.3.0",
+  "apk": "alma-android-v1.3.0.apk",
+  "notes": "应用内自动更新：启动静默检查 + 设置→关于手动检查/下载/安装；国内网络自动走镜像（可配置）；含 AVD 实测修复（发布资产同步、下载广播、默认镜像）"
 }
