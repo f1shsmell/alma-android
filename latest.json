@@ -1,5 +1,9 @@
 {
-  "tag": "v0.4.213-9",
-  "apk": "alma-android-v0.4.213-9.apk",
-  "notes": "Alma Android v0.4.213-9（renderer 0.4.213）。"
+  "tag": "v0.4.213-10",
+  "apk": "alma-android-v0.4.213-10.apk",
+  "notes": "Alma Android 0.4.213-10（renderer 0.4.213）。\n- 更新提示 pill + 版本说明弹窗 + 多镜像下载链",
+  "mirrors": [
+    "https://gh-proxy.com/https://github.com/nanami-0713/alma-android/releases/download/v0.4.213-10/alma-android-v0.4.213-10.apk",
+    "https://ghfast.top/https://github.com/nanami-0713/alma-android/releases/download/v0.4.213-10/alma-android-v0.4.213-10.apk"
+  ]
 }
