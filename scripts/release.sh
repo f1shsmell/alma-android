@@ -92,7 +92,9 @@ PY
 git add -A
 git commit -m "release: $TAG (versionCode $NEW_CODE)
 
-$NOTES"
+$NOTES
+
+Co-Authored-By: Claude Code <noreply@anthropic.com>"
 git tag "$TAG"
 git push origin main
 git push origin "$TAG"
