@@ -198,15 +198,20 @@ NEW = '''        ] }),
               onClick: () => {
                 if (opt.id === curLangSel) return;
                 void window.almaHaptics?.selection();
-                if (opt.id === "__system") {
-                  try { localStorage.removeItem("alma.android.lang.user"); } catch {}
-                  const nat = String(window.__almaAndroidLang__ || navigator.language || "en").toLowerCase();
-                  changeLanguage(nat.indexOf("zh") === 0 ? "zh" : nat.indexOf("ja") === 0 ? "ja" : "en");
-                } else {
-                  try { localStorage.setItem("alma.android.lang.user", "1"); } catch {}
-                  changeLanguage(opt.id);
-                }
-                try { window.parent.postMessage({ type: "alma-android-reload-main" }, "*"); } catch {}
+                // alma-android: 同步持久化 + 通知宿主实时切换 —— 不再整页
+                // reload（闪屏/挤回首页），也避开 i18next 异步缓存与 reload
+                // 的竞态（选择丢失 → 回退系统语言）。
+                const nat = String(window.__almaAndroidLang__ || navigator.language || "en").toLowerCase();
+                const lang = opt.id === "__system"
+                  ? (nat.indexOf("zh") === 0 ? "zh" : nat.indexOf("ja") === 0 ? "ja" : "en")
+                  : opt.id;
+                try {
+                  if (opt.id === "__system") localStorage.removeItem("alma.android.lang.user");
+                  else localStorage.setItem("alma.android.lang.user", "1");
+                  localStorage.setItem("i18nextLng", lang);
+                } catch {}
+                try { window.parent.postMessage({ type: "alma-android-lang", lang }, "*"); } catch {}
+                changeLanguage(lang);
               },
               className: cn(
                 "h-8 flex-1 rounded-[7px] px-1 text-[13px] font-medium transition-colors whitespace-nowrap",
@@ -232,6 +237,170 @@ for old, new in [
 
 open(target, 'w', encoding='utf-8').write(s)
 print(f'✓ 手机设置语言行 {n} 处 → {target.split("/")[-1]}')
+PYEOF
+
+# ── 2.71 手机设置：检查更新行（应用内更新手机入口）──────────────────
+# 桌面 AboutSettings（Card 版，官方完整 updater UI）不在手机设置页里——
+# 手机端在 关于 区加一行：状态走 almaApp.onAutoUpdateStatus，点按分派
+# checkForUpdates / downloadUpdate / quitAndInstall；词典全部复用桌面键。
+python3 - << 'PYEOF'
+import glob
+
+target = None
+for p in sorted(glob.glob('www/assets/*.js')):
+    with open(p, encoding='utf-8', errors='ignore') as f:
+        if 'function PhoneSettings(' in f.read():
+            target = p
+            break
+assert target, '手机设置 chunk（PhoneSettings）未找到'
+
+s = open(target, encoding='utf-8').read()
+n = 0
+
+# 1) 更新状态订阅（getInfo 初值 + onAutoUpdateStatus 事件流）
+OLD = '  const [version2, setVersion] = reactExports.useState(null);'
+NEW = '''  const [version2, setVersion] = reactExports.useState(null);
+  // alma-android: 应用内更新状态行 —— 桌面 AboutSettings（Card 版，含完整
+  // updater UI）不在手机设置页里，手机端在此接同一 almaApp 协议。
+  const [updState, setUpdState] = reactExports.useState({ status: "idle" });
+  reactExports.useEffect(() => {
+    let un2;
+    void window.almaApp?.getInfo?.().then((info2) => {
+      if (info2?.autoUpdateStatus?.status) setUpdState(info2.autoUpdateStatus);
+    }).catch(() => {});
+    try { un2 = window.almaApp?.onAutoUpdateStatus?.((s2) => setUpdState(s2)); } catch {}
+    return () => { try { un2 && un2(); } catch {} };
+  }, []);'''
+assert OLD in s, 'version useState 锚点未找到'
+s = s.replace(OLD, NEW, 1); n += 1
+
+# 2) 动作分派 + 状态文案（含下载百分比）
+OLD = '  const swipe = reactExports.useRef(null);'
+NEW = '''  // alma-android: 检查更新行的动作与状态文案（词典复用桌面 AboutSettings 键）
+  const updBusy = updState.status === "checking" || updState.status === "downloading";
+  const updTap = () => {
+    const A = window.almaApp;
+    if (!A || updBusy) return;
+    void window.almaHaptics?.selection();
+    if (updState.status === "update-available") { void A.downloadUpdate?.(); return; }
+    if (updState.status === "update-downloaded") { A.quitAndInstall?.(); return; }
+    void A.checkForUpdates?.();
+  };
+  const updLabel = (() => {
+    const m2 = {
+      checking: t2("settings.about.checking", "Checking…"),
+      "update-available": t2("settings.about.status.updateAvailable", "Update available"),
+      "update-not-available": t2("settings.about.status.upToDate", "Up to date"),
+      downloading: t2("settings.about.status.downloading", "Downloading"),
+      "update-downloaded": t2("settings.about.status.downloaded", "Ready to install"),
+      error: t2("settings.about.status.error", "Error"),
+      unsupported: t2("settings.about.status.unsupported", "Not supported")
+    };
+    let base = m2[updState.status] ?? "";
+    if (updState.status === "update-available" && updState.version)
+      base = `${updState.version} · ${t2("updater.downloadNow", "Download")}`;
+    if (updState.status === "downloading" && updState.total)
+      base += ` ${Math.min(100, Math.round((updState.transferred || 0) / updState.total * 100))}%`;
+    return base;
+  })();
+  const swipe = reactExports.useRef(null);'''
+assert OLD in s, 'swipe ref 锚点未找到'
+s = s.replace(OLD, NEW, 1); n += 1
+
+# 3) 关于区：版本行之后插入检查更新行
+OLD = '''        /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(PhoneGroupLabel, { children: t2("phone.settings.about", "About") }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(PhoneGroup, { children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+            PhoneRow,
+            {
+              first: true,
+              title: t2("phone.settings.version", "Version"),
+              trailing: /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-[16px] text-muted-foreground", children: version2 ?? "—" })
+            }
+          ) })
+        ] })'''
+NEW = '''        /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(PhoneGroupLabel, { children: t2("phone.settings.about", "About") }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(PhoneGroup, { children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx(
+              PhoneRow,
+              {
+                first: true,
+                title: t2("phone.settings.version", "Version"),
+                trailing: /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-[16px] text-muted-foreground", children: version2 ?? "—" })
+              }
+            ),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(
+              PhoneRow,
+              {
+                title: t2("settings.about.checkUpdates", "Check for updates"),
+                subtitle: updLabel || null,
+                disabled: updBusy,
+                onClick: updTap,
+                trailing: /* @__PURE__ */ jsxRuntimeExports.jsx(ChevronRight, { size: 17, className: "shrink-0 text-muted-foreground/60" })
+              }
+            )
+          ] })
+        ] })'''
+assert OLD in s, '关于区版本行锚点未找到'
+s = s.replace(OLD, NEW, 1); n += 1
+
+open(target, 'w', encoding='utf-8').write(s)
+print(f'✓ 手机设置检查更新行 {n} 处 → {target.split("/")[-1]}')
+PYEOF
+
+# ── 2.72 跨帧实时语言切换（i18next 单例监听）─────────────────────────
+# 设置层 iframe 选语言 → postMessage(alma-android-lang) → 宿主文档同一 i18next
+# 单例 changeLanguage，主界面 live 切换。附带把选择同步写 i18nextLng：detector
+# 的 cacheUserLanguage 在 languageChanged 异步链里，此前与整页 reload 竞态会
+# 丢选择（用户切日语 3-4 秒后被弹回系统语言）。
+python3 - << 'PYEOF'
+import glob
+
+target = None
+for p in sorted(glob.glob('www/assets/*.js')):
+    with open(p, encoding='utf-8', errors='ignore') as f:
+        if '.use(Browser).use(initReactI18next).init({' in f.read():
+            target = p
+            break
+assert target, 'i18next init chunk 未找到'
+
+s = open(target, encoding='utf-8').read()
+OLD = '''if (typeof document !== "undefined") {
+  const sync = (language) => {
+    document.documentElement.lang = documentLangFor(language);
+  };
+  sync(instance.language);
+  instance.on("languageChanged", sync);
+}'''
+NEW = '''if (typeof document !== "undefined") {
+  const sync = (language) => {
+    document.documentElement.lang = documentLangFor(language);
+  };
+  sync(instance.language);
+  instance.on("languageChanged", sync);
+}
+// alma-android: 跨帧实时语言切换。设置层 iframe 里选语言 → postMessage 到宿主，
+// 宿主的同一 i18next 单例 live 切换（不整页 reload —— 冷启动会闪屏且把用户
+// 挤回首页）。同时把选择同步写入 i18nextLng（detector 的缓存写入是异步的，
+// 曾与 reload 竞态导致选择丢失回退系统语言）。
+if (typeof window !== "undefined") {
+  try {
+    instance.on("languageChanged", (l2) => {
+      try { localStorage.setItem("i18nextLng", String(l2).split("-")[0]); } catch {}
+    });
+    window.addEventListener("message", (e2) => {
+      const d2 = e2 && e2.data;
+      if (d2 && d2.type === "alma-android-lang" && d2.lang) {
+        try { instance.changeLanguage(String(d2.lang).split("-")[0]); } catch {}
+      }
+    });
+  } catch {}
+}'''
+assert OLD in s, 'i18next documentLang 同步块锚点未找到'
+s = s.replace(OLD, NEW, 1)
+open(target, 'w', encoding='utf-8').write(s)
+print('✓ i18n 跨帧语言监听 →', target.split('/')[-1])
 PYEOF
 
 # ── 2.8 配对执行移回主帧（扫码 iframe 化回归的根治）─────────────────

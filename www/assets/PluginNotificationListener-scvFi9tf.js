@@ -38285,6 +38285,17 @@ function PhoneSettings({ initialSection, onClose }) {
   const [section, setSection] = reactExports.useState(() => sectionFromTab(initialSection));
   const [mode2, setMode] = reactExports.useState(null);
   const [version2, setVersion] = reactExports.useState(null);
+  // alma-android: 应用内更新状态行 —— 桌面 AboutSettings（Card 版，含完整
+  // updater UI）不在手机设置页里，手机端在此接同一 almaApp 协议。
+  const [updState, setUpdState] = reactExports.useState({ status: "idle" });
+  reactExports.useEffect(() => {
+    let un2;
+    void window.almaApp?.getInfo?.().then((info2) => {
+      if (info2?.autoUpdateStatus?.status) setUpdState(info2.autoUpdateStatus);
+    }).catch(() => {});
+    try { un2 = window.almaApp?.onAutoUpdateStatus?.((s2) => setUpdState(s2)); } catch {}
+    return () => { try { un2 && un2(); } catch {} };
+  }, []);
   reactExports.useEffect(() => {
     const next = sectionFromTab(initialSection);
     if (next) setSection(next);
@@ -38305,6 +38316,33 @@ function PhoneSettings({ initialSection, onClose }) {
       window.removeEventListener("alma:ios:backend-mode-changed", onMode);
     };
   }, []);
+  // alma-android: 检查更新行的动作与状态文案（词典复用桌面 AboutSettings 键）
+  const updBusy = updState.status === "checking" || updState.status === "downloading";
+  const updTap = () => {
+    const A = window.almaApp;
+    if (!A || updBusy) return;
+    void window.almaHaptics?.selection();
+    if (updState.status === "update-available") { void A.downloadUpdate?.(); return; }
+    if (updState.status === "update-downloaded") { A.quitAndInstall?.(); return; }
+    void A.checkForUpdates?.();
+  };
+  const updLabel = (() => {
+    const m2 = {
+      checking: t2("settings.about.checking", "Checking…"),
+      "update-available": t2("settings.about.status.updateAvailable", "Update available"),
+      "update-not-available": t2("settings.about.status.upToDate", "Up to date"),
+      downloading: t2("settings.about.status.downloading", "Downloading"),
+      "update-downloaded": t2("settings.about.status.downloaded", "Ready to install"),
+      error: t2("settings.about.status.error", "Error"),
+      unsupported: t2("settings.about.status.unsupported", "Not supported")
+    };
+    let base = m2[updState.status] ?? "";
+    if (updState.status === "update-available" && updState.version)
+      base = `${updState.version} · ${t2("updater.downloadNow", "Download")}`;
+    if (updState.status === "downloading" && updState.total)
+      base += ` ${Math.min(100, Math.round((updState.transferred || 0) / updState.total * 100))}%`;
+    return base;
+  })();
   const swipe = reactExports.useRef(null);
   const onTouchStart = (e2) => {
     const t0 = e2.touches[0];
@@ -38381,15 +38419,20 @@ function PhoneSettings({ initialSection, onClose }) {
               onClick: () => {
                 if (opt.id === curLangSel) return;
                 void window.almaHaptics?.selection();
-                if (opt.id === "__system") {
-                  try { localStorage.removeItem("alma.android.lang.user"); } catch {}
-                  const nat = String(window.__almaAndroidLang__ || navigator.language || "en").toLowerCase();
-                  changeLanguage(nat.indexOf("zh") === 0 ? "zh" : nat.indexOf("ja") === 0 ? "ja" : "en");
-                } else {
-                  try { localStorage.setItem("alma.android.lang.user", "1"); } catch {}
-                  changeLanguage(opt.id);
-                }
-                try { window.parent.postMessage({ type: "alma-android-reload-main" }, "*"); } catch {}
+                // alma-android: 同步持久化 + 通知宿主实时切换 —— 不再整页
+                // reload（闪屏/挤回首页），也避开 i18next 异步缓存与 reload
+                // 的竞态（选择丢失 → 回退系统语言）。
+                const nat = String(window.__almaAndroidLang__ || navigator.language || "en").toLowerCase();
+                const lang = opt.id === "__system"
+                  ? (nat.indexOf("zh") === 0 ? "zh" : nat.indexOf("ja") === 0 ? "ja" : "en")
+                  : opt.id;
+                try {
+                  if (opt.id === "__system") localStorage.removeItem("alma.android.lang.user");
+                  else localStorage.setItem("alma.android.lang.user", "1");
+                  localStorage.setItem("i18nextLng", lang);
+                } catch {}
+                try { window.parent.postMessage({ type: "alma-android-lang", lang }, "*"); } catch {}
+                changeLanguage(lang);
               },
               className: cn(
                 "h-8 flex-1 rounded-[7px] px-1 text-[13px] font-medium transition-colors whitespace-nowrap",
@@ -38416,14 +38459,26 @@ function PhoneSettings({ initialSection, onClose }) {
         ] }),
         /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx(PhoneGroupLabel, { children: t2("phone.settings.about", "About") }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx(PhoneGroup, { children: /* @__PURE__ */ jsxRuntimeExports.jsx(
-            PhoneRow,
-            {
-              first: true,
-              title: t2("phone.settings.version", "Version"),
-              trailing: /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-[16px] text-muted-foreground", children: version2 ?? "—" })
-            }
-          ) })
+          /* @__PURE__ */ jsxRuntimeExports.jsx(PhoneGroup, { children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx(
+              PhoneRow,
+              {
+                first: true,
+                title: t2("phone.settings.version", "Version"),
+                trailing: /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-[16px] text-muted-foreground", children: version2 ?? "—" })
+              }
+            ),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(
+              PhoneRow,
+              {
+                title: t2("settings.about.checkUpdates", "Check for updates"),
+                subtitle: updLabel || null,
+                disabled: updBusy,
+                onClick: updTap,
+                trailing: /* @__PURE__ */ jsxRuntimeExports.jsx(ChevronRight, { size: 17, className: "shrink-0 text-muted-foreground/60" })
+              }
+            )
+          ] })
         ] })
       ] })
     ] }),

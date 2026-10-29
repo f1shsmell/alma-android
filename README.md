@@ -93,7 +93,7 @@ renderer 自带完整 updater UI（设置 → 关于：状态行/进度条/重�
 
 - **检查**：启动静默检查（6 小时限频，发现新版才亮 badge）；设置 → 关于 → Check for updates 手动检查。先查 GitHub API `releases/latest`，直连失败（国内网络）自动改走镜像读仓库根 `latest.json`。
 - **下载**：原生 `DownloadManager`（通知栏可见、断点续传），直连失败用镜像 URL 重试一次；完成经 FileProvider 拉起系统安装器。Android 8+ 首次会引导「安装未知应用」授权，授权后回 App 再点一次安装即可。
-- **版本**：壳 `versionName`（与 GitHub tag 对齐）为权威；About 页显示的版本即它，renderer 版本在 build 字段。
+- **版本**：以内嵌 renderer 版本为准（如 `0.4.213`，与 Alma 桌面一致）——APK `versionName` 即它，About 页只显示这一个版本号；GitHub tag 同号（`v0.4.213`）。
 - **镜像可配**：默认 `https://gh-proxy.com/`；改 localStorage `alma.android.update.mirror` 可换前缀，置空串禁用镜像（只走直连）。
 
 发布用 `scripts/release.sh`（见下节），它会重写 `latest.json` 随 main 推送 —— 镜像兜底源永远和最新 Release 一致。
@@ -105,7 +105,9 @@ bash scripts/release.sh [版本号] [发布说明]
 # 例：bash scripts/release.sh 1.4.0 "修复 XX；新增 YY"
 ```
 
-一条龙：回归测试三件套（全绿才继续，对齐「测试不过不提交」）→ 递增 `versionCode/versionName` → `assembleDebug` → 同步 `../apk-serve/` → 写 `latest.json` → commit + tag + push → `gh release create`（附 `alma-android-vX.Y.Z.apk`）。版本号缺省 = patch 位 +1。
+一条龙：回归测试三件套（全绿才继续，对齐「测试不过不提交」+ [LESSONS.md](LESSONS.md) 的发版底线）→ 版本号取 www/ 内嵌 renderer 版本（同版本的壳修复自动出 `-N` 后缀 tag，如 `v0.4.213-6`）→ `cap sync` + `assembleDebug` → 同步 `../apk-serve/` → 写 `latest.json` → commit + tag + push → `gh release create`（附 `alma-android-vX.Y.Z.apk`）。
+
+**语言切换**：设置 → 语言选任意档位即时生效（主界面 live 切换，不重载不闪屏）；「跟随系统」跟随系统语言，选择持久化。
 
 ## 升级到新版 Alma
 

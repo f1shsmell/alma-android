@@ -17048,6 +17048,23 @@ if (typeof document !== "undefined") {
   sync(instance.language);
   instance.on("languageChanged", sync);
 }
+// alma-android: 跨帧实时语言切换。设置层 iframe 里选语言 → postMessage 到宿主，
+// 宿主的同一 i18next 单例 live 切换（不整页 reload —— 冷启动会闪屏且把用户
+// 挤回首页）。同时把选择同步写入 i18nextLng（detector 的缓存写入是异步的，
+// 曾与 reload 竞态导致选择丢失回退系统语言）。
+if (typeof window !== "undefined") {
+  try {
+    instance.on("languageChanged", (l2) => {
+      try { localStorage.setItem("i18nextLng", String(l2).split("-")[0]); } catch {}
+    });
+    window.addEventListener("message", (e2) => {
+      const d2 = e2 && e2.data;
+      if (d2 && d2.type === "alma-android-lang" && d2.lang) {
+        try { instance.changeLanguage(String(d2.lang).split("-")[0]); } catch {}
+      }
+    });
+  } catch {}
+}
 const toKebabCase = (string) => string.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase();
 const toCamelCase = (string) => string.replace(
   /^([A-Z])|[\s-_]+(\w)/g,

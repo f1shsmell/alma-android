@@ -27,17 +27,43 @@ for t in cdp-e2e.mjs cdp-drawer.mjs cdp-webview-gate.mjs; do
   [ -f "$TEST_DIR/$t" ] || { echo "✗ 缺少测试 $TEST_DIR/$t（可用 ALMA_TEST_DIR 覆盖路径）。" >&2; exit 1; }
 done
 
-# ── 1. 版本号 ───────────────────────────────────────────────────────
+# ── 1. 版本号：以 www/ 内嵌 renderer 版本为准（与 Alma 桌面同版本号）──
+# tag = v<renderer 版本>；同一 renderer 版本的壳修复（tag 已存在）追加
+# "-<versionCode>" 后缀（如 v0.4.213-6），应用内 isNewer 按第 4 段比较。
 GRADLE_FILE="$GRADLE/app/build.gradle"
 CUR_NAME="$(sed -n 's/.*versionName "\([^"]*\)".*/\1/p' "$GRADLE_FILE" | head -1)"
 CUR_CODE="$(sed -n 's/.*versionCode \([0-9]*\).*/\1/p' "$GRADLE_FILE" | head -1)"
-NEW_NAME="${1:-}"
-if [ -z "$NEW_NAME" ]; then
-  NEW_NAME="$(echo "$CUR_NAME" | awk -F. '{print $1"."$2"."$3+1}')"
-fi
 NEW_CODE=$((CUR_CODE + 1))
-NOTES="${2:-Alma Android v${NEW_NAME}。}"
+RENDERER_VER="$(grep -ho 'alma@[0-9][0-9A-Za-z.]*' "$ROOT"/www/assets/*.js 2>/dev/null | head -1 | cut -d'@' -f2)"
+NEW_NAME="${1:-$RENDERER_VER}"
+[ -n "$NEW_NAME" ] || { echo "✗ 无法从 www/ 读出 renderer 版本，请显式传版本号。" >&2; exit 1; }
+if [ "${NEW_NAME#*-}" != "$NEW_NAME" ]; then
+  echo "✗ 版本号请只给 renderer 版本（如 0.4.214），壳修复后缀由脚本生成。" >&2; exit 1
+fi
 TAG="v${NEW_NAME}"
+# -N 后缀触发条件（应用内 isNewer 同款比较，含 1.x 遗留折算）：
+#   ① tag 已被占用（同 renderer 的壳修复）；② 对已发布的最新 tag 不构成
+#   「严格更新」（如 v1.3.0 → v0.4.213：折算后相等，老用户会收不到提示）。
+LATEST_TAG="$(gh release view --repo nanami-0713/alma-android --json tagName -q .tagName 2>/dev/null || true)"
+SUFFIX_NEEDED="$(python3 - "$NEW_NAME" "$LATEST_TAG" <<'PY'
+import re, sys
+new, latest = sys.argv[1], (sys.argv[2] or "").strip()
+def legacy(t):
+    t = t.lstrip("v")
+    return "0.4.213" if re.match(r"^1\.\d+(\.\d+)?$", t) else t   # 1.x 壳随包 renderer 都是 0.4.213
+def parse(t):
+    parts = re.split(r"[.+-]", t.lstrip("v"))[:4]
+    return [int(p) if p.isdigit() else 0 for p in parts] + [0, 0, 0, 0]
+new, latest = legacy(new), legacy(latest)
+print("1" if latest and parse(new) <= parse(latest) else "0")
+PY
+)"
+if [ -n "$(git ls-remote --tags origin "refs/tags/${TAG}" 2>/dev/null | grep -q . && echo x)" ] || [ "$SUFFIX_NEEDED" = "1" ]; then
+  NEW_NAME="${NEW_NAME}-${NEW_CODE}"
+  TAG="v${NEW_NAME}"
+  echo "▶ 壳修复/形态切换发布 $TAG"
+fi
+NOTES="${2:-Alma Android v${NEW_NAME}（renderer $RENDERER_VER）。}"
 ASSET="alma-android-${TAG}.apk"
 echo "▶ $CUR_NAME ($CUR_CODE) → $NEW_NAME ($NEW_CODE)  tag=$TAG"
 

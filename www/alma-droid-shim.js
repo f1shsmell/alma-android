@@ -75,13 +75,16 @@
   // 本 shim 在 i18next 模块执行前预置缓存键；用户在设置里手动选过语言
   // （alma.android.lang.user 标记）后不再自动跟随。
   try {
+    var natLang = "";
+    try { natLang = String(window.__almaAndroidLang__ || ""); } catch (e) {}
+    if (!natLang && window.__almaAndroidLocale) {
+      try { natLang = String(window.__almaAndroidLocale.getLanguageTag()); } catch (e) {}
+    }
+    if (!natLang) natLang = (navigator.languages && navigator.languages[0]) || navigator.language || "en";
+    // 无论是否手动选过语言都暴露原生 locale：设置层「跟随系统」档要现算
+    // 系统语言（documentStart 注入 <API 33 不存在，iframe 也能走到这里）。
+    try { window.__almaAndroidLang__ = window.__almaAndroidLang__ || natLang; } catch (e) {}
     if (!localStorage.getItem("alma.android.lang.user")) {
-      var natLang = "";
-      try { natLang = String(window.__almaAndroidLang__ || ""); } catch (e) {}
-      if (!natLang && window.__almaAndroidLocale) {
-        try { natLang = String(window.__almaAndroidLocale.getLanguageTag()); } catch (e) {}
-      }
-      if (!natLang) natLang = (navigator.languages && navigator.languages[0]) || navigator.language || "en";
       var nl = natLang.toLowerCase();
       localStorage.setItem("i18nextLng", nl.indexOf("zh") === 0 ? "zh" : nl.indexOf("ja") === 0 ? "ja" : "en");
     }
@@ -295,15 +298,22 @@
     try { return (window.__almaAndroidUpdate.getVersionName() || "").trim(); } catch (e) { return ""; }
   }
 
+  // 版本权威 = APK versionName = 内嵌 renderer 版本（0.4.213 形态，用户可见
+  // 版本与 Alma 桌面一致）。壳独立修复（renderer 不变）时 release.sh 会发
+  // "0.4.213-N" 形态 → 第 4 段参与比较。
   function parseVer(tag) {
-    var out = [], p = String(tag || "").replace(/^v/i, "").split(".");
-    for (var i = 0; i < 3; i++) out.push(parseInt(p[i], 10) || 0);
+    var out = [], p = String(tag || "").replace(/^v/i, "").split(/[.+-]/);
+    for (var i = 0; i < 4; i++) out.push(parseInt(p[i], 10) || 0);
     return out;
   }
   function isNewer(tag, current) {
     if (!tag || !current) return false;
+    // 遗留壳号折算：1.x 时代的 versionName（1.0 / 1.3.0）与 renderer 版本无关，
+    // 它们随包的 renderer 都是 0.4.213 —— 统一折算后比较，否则 1.3.0 用户
+    // 收不到 v0.4.213-N 过渡版的升级提示（数值上 0.4.x < 1.x）。
+    if (/^1\.\d+(\.\d+)?$/.test(current)) current = "0.4.213";
     var a = parseVer(tag), b = parseVer(current);
-    for (var i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] > b[i];
+    for (var i = 0; i < 4; i++) if (a[i] !== b[i]) return a[i] > b[i];
     return false;
   }
 
@@ -490,9 +500,9 @@
     }
   }
 
-  // 应用信息：真值实现。version 用 APK 壳版本（与 GitHub tag 对齐，
-  // AboutSettings 的检查更新即比较它）；renderer 版本（SENTRY_RELEASE
-  // alma@x.y.z）挪到 build。
+  // 应用信息：version = APK versionName（即内嵌 renderer 版本，与 GitHub tag
+  // 对齐、与 Alma 桌面版本一致）；build 留空 —— 手机设置页会拼 "version (build)"，
+  // 二者同源时只显示一个版本号。
   window.almaApp ??= {
     getInfo: function () {
       var ver = "";
@@ -503,7 +513,7 @@
       return Promise.resolve({
         name: "Alma",
         version: shellVersion() || ver,
-        build: ver,
+        build: "",
         platform: PLATFORM, arch: "android",
         autoUpdateSupported: true,
         autoUpdateStatus: updateState
