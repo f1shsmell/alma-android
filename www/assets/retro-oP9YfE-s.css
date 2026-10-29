@@ -1,3 +1,4 @@
+/* alma-compat:chromium100 */
 /*
  * Retro-Windows theme family — loaded on demand (src/themes/retro-css.ts),
  * NOT from index.css. These four sheets are ~3,000 lines of rules scoped to
@@ -395,7 +396,7 @@
     padding: 3px 2px 0;
     background: var(--w98-surface, #c0c0c0);
 }
-:root:is([data-base46-theme='win98'], [data-base46-theme='winxp'], [data-base46-theme='longhorn'], [data-base46-theme='longhorn-dark']) *:has(> .win98-status-bar) > .sidebar-scroll-area {
+:root:is([data-base46-theme='win98'], [data-base46-theme='winxp'], [data-base46-theme='longhorn'], [data-base46-theme='longhorn-dark']) *.alma-has-12 > .sidebar-scroll-area {
     padding-bottom: 26px;
 }
 :root:is([data-base46-theme='win98'], [data-base46-theme='winxp'], [data-base46-theme='longhorn'], [data-base46-theme='longhorn-dark']) .win98-status-bar .win98-status-cell {
@@ -1262,7 +1263,8 @@
 :root:is([data-base46-theme='win98'], [data-base46-theme='winxp'], [data-base46-theme='longhorn'], [data-base46-theme='longhorn-dark']) button[aria-label='Timeline view'] {
     background: transparent;
 }
-:root:is([data-base46-theme='win98'], [data-base46-theme='winxp'], [data-base46-theme='longhorn'], [data-base46-theme='longhorn-dark']) button[aria-label='Timeline view']:hover {
+:root:is([data-base46-theme='win98'], [data-base46-theme='winxp'], [data-base46-theme='longhorn'], [data-base46-theme='longhorn-dark']) button[aria-label='Timeline view']:hover {background: rgba(0, 0, 128, 0.14);
+
     background: color-mix(in srgb, var(--w98-navy) 14%, transparent);
 }
 :root:is([data-base46-theme='win98'], [data-base46-theme='winxp'], [data-base46-theme='longhorn'], [data-base46-theme='longhorn-dark']) button[aria-label='Timeline view'].bg-muted {
@@ -1337,8 +1339,8 @@
    own border/shadow paints under them), masked to the band; the ::after
    stack owns everything below. Inset ring + border-radius follows the
    same arc as the body clip, fully inside it. */
-:root[data-base46-theme='winxp'] body:has(.app-window-shell)::before,
-:root[data-base46-theme='winxp'] body:has(.settings-shell)::before {
+:root[data-base46-theme='winxp'] body.alma-has-11::before,
+:root[data-base46-theme='winxp'] body.alma-has-10::before {
     content: '';
     position: fixed;
     inset: 0;
@@ -1349,8 +1351,8 @@
     -webkit-mask-image: linear-gradient(180deg, #000 0, #000 29px, transparent 29px);
     mask-image: linear-gradient(180deg, #000 0, #000 29px, transparent 29px);
 }
-:root[data-base46-theme='winxp'] body:has(.app-window-shell)::after,
-:root[data-base46-theme='winxp'] body:has(.settings-shell)::after {
+:root[data-base46-theme='winxp'] body.alma-has-11::after,
+:root[data-base46-theme='winxp'] body.alma-has-10::after {
     border-radius: 8px 8px 0 0 !important;
 }
 /* Selection: Luna blue */
@@ -1376,8 +1378,8 @@
    position:relative makes body the containing block so absolute layers
    clip too; fixed elements (window controls, frame overlay) escape but
    never enter the 8px corner squares. */
-:root[data-base46-theme='winxp'] body:has(.app-window-shell),
-:root[data-base46-theme='winxp'] body:has(.settings-shell) {
+:root[data-base46-theme='winxp'] body.alma-has-11,
+:root[data-base46-theme='winxp'] body.alma-has-10 {
     position: relative;
     /* NOT overflow:hidden — overflow on body is PROPAGATED TO THE VIEWPORT
        (it never clips body's own box). clip-path clips the whole subtree,
@@ -1387,8 +1389,8 @@
     border-radius: 8px 8px 0 0 !important;
     border: none;
 }
-:root[data-base46-theme='winxp'] body:has(.app-window-shell)::after,
-:root[data-base46-theme='winxp'] body:has(.settings-shell)::after {
+:root[data-base46-theme='winxp'] body.alma-has-11::after,
+:root[data-base46-theme='winxp'] body.alma-has-10::after {
     content: '';
     position: fixed;
     inset: 0;
@@ -1459,8 +1461,8 @@
     filter: saturate(0.35) brightness(1.12);
 }
 /* Blurred window: the frame desaturates with the title bar. */
-:root[data-base46-theme='winxp'][data-win98-blurred] body:has(.app-window-shell)::after,
-:root[data-base46-theme='winxp'][data-win98-blurred] body:has(.settings-shell)::after {
+:root[data-base46-theme='winxp'][data-win98-blurred] body.alma-has-11::after,
+:root[data-base46-theme='winxp'][data-win98-blurred] body.alma-has-10::after {
     box-shadow:
         inset -1px -1px #4a56a5,
         inset 1px 1px #6579c8,
@@ -2004,15 +2006,15 @@
  * fixed ring draws the frame line along the same 8px top round (the Plex
  * titlebar radius).
  * ------------------------------------------------------------------------- */
-:root[data-base46-theme='longhorn'] body:has(.app-window-shell),
-:root[data-base46-theme='longhorn'] body:has(.settings-shell) {
+:root[data-base46-theme='longhorn'] body.alma-has-11,
+:root[data-base46-theme='longhorn'] body.alma-has-10 {
     position: relative;
     clip-path: inset(0 round 8px 8px 0 0);
     border-radius: 8px 8px 0 0 !important;
     border: none;
 }
-:root[data-base46-theme='longhorn'] body:has(.app-window-shell)::before,
-:root[data-base46-theme='longhorn'] body:has(.settings-shell)::before {
+:root[data-base46-theme='longhorn'] body.alma-has-11::before,
+:root[data-base46-theme='longhorn'] body.alma-has-10::before {
     content: '';
     position: fixed;
     inset: 0;
@@ -2023,8 +2025,8 @@
     -webkit-mask-image: linear-gradient(180deg, #000 0, #000 30px, transparent 30px);
     mask-image: linear-gradient(180deg, #000 0, #000 30px, transparent 30px);
 }
-:root[data-base46-theme='longhorn'] body:has(.app-window-shell)::after,
-:root[data-base46-theme='longhorn'] body:has(.settings-shell)::after {
+:root[data-base46-theme='longhorn'] body.alma-has-11::after,
+:root[data-base46-theme='longhorn'] body.alma-has-10::after {
     content: '';
     position: fixed;
     inset: 0;
@@ -2429,15 +2431,15 @@
  * Window geometry — single-arc principle (see winxp.css): body clips and the
  * fixed ring draws the frame line along the same 8px top round.
  * ------------------------------------------------------------------------- */
-:root[data-base46-theme='longhorn-dark'] body:has(.app-window-shell),
-:root[data-base46-theme='longhorn-dark'] body:has(.settings-shell) {
+:root[data-base46-theme='longhorn-dark'] body.alma-has-11,
+:root[data-base46-theme='longhorn-dark'] body.alma-has-10 {
     position: relative;
     clip-path: inset(0 round 8px 8px 0 0);
     border-radius: 8px 8px 0 0 !important;
     border: none;
 }
-:root[data-base46-theme='longhorn-dark'] body:has(.app-window-shell)::before,
-:root[data-base46-theme='longhorn-dark'] body:has(.settings-shell)::before {
+:root[data-base46-theme='longhorn-dark'] body.alma-has-11::before,
+:root[data-base46-theme='longhorn-dark'] body.alma-has-10::before {
     content: '';
     position: fixed;
     inset: 0;
@@ -2448,8 +2450,8 @@
     -webkit-mask-image: linear-gradient(180deg, #000 0, #000 30px, transparent 30px);
     mask-image: linear-gradient(180deg, #000 0, #000 30px, transparent 30px);
 }
-:root[data-base46-theme='longhorn-dark'] body:has(.app-window-shell)::after,
-:root[data-base46-theme='longhorn-dark'] body:has(.settings-shell)::after {
+:root[data-base46-theme='longhorn-dark'] body.alma-has-11::after,
+:root[data-base46-theme='longhorn-dark'] body.alma-has-10::after {
     content: '';
     position: fixed;
     inset: 0;

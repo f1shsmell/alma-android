@@ -51,7 +51,10 @@ alma-android/
 ├── www/                    # Alma renderer
 ├── android/                # Capacitor Gradle 工程（含官方同款图标）
 ├── scripts/sync-assets.sh  # 【可选】升级用：新版 renderer → www/ 全流程重建
+├── scripts/compat-css.js   # Chromium 100 兼容降级（oklch / :has / color-mix）
 ├── scripts/shim/alma-droid-shim.js
+├── scripts/shim/alma-compat.js    # 运行时 :has / field-sizing / inline color-mix
+├── scripts/shim/alma-webview-gate.js
 ├── capacitor.config.json   # appId local.almaandroid.app / androidScheme https
 └── package.json
 ```
@@ -60,7 +63,8 @@ alma-android/
 
 | 块 | 作用 |
 |---|---|
-| 1 | 注入 shim（紧跟 `<body>`，首帧即手机布局；`alma-webview-gate.js` 纯 ES5，必须排最前） |
+| 0 | Chromium 100 兼容降级（`compat-css.js`）：oklch→sRGB、`:has()`→`.alma-has-N`、补 color-mix fallback |
+| 1 | 注入 shim（紧跟 `<body>`，首帧即手机布局；`alma-webview-gate.js` 纯 ES5，必须排最前；`alma-has-rules.js` + `alma-compat.js` 紧随其后） |
 | 2 | 平台身份补丁 A–E：`isPhoneShell`/`isPhone`/`isIOS`(=手机壳语义)/PlatformProvider 初始 state 同步读 dataset/settings 标题栏 |
 | 2.5 | composer chip `min-w-0`（修复长模型名把发送按钮挤出屏幕） |
 | 2.7 | 手机设置语言行（跟随系统 / English·中文·日本語，词典补键） |
@@ -75,7 +79,9 @@ alma-android/
 
 1. **屏闪（暗色下白闪）**——整条底色链统一为主题色（light `#ffffff` / dark `#282c34`，`values(-night)/colors.xml:launch_background`）：纯色 splash（替换 Capacitor 黑底 PNG）→ `AppTheme.NoActionBar` 的 `windowBackground` → 12+ 系统 splash `windowSplashScreenBackground`（values-v31）→ WebView 底色（`MainActivity`，不再恒白）→ 设置层 iframe 底色（shim `pageBg()`，不再硬编码 `#fff`）。重载/开设置/冷启动各环节不再出现异色空窗。活动补 `windowSoftInputMode=adjustResize`，键盘行为在 ROM 间一致。
 2. **标题顶进状态栏（部分 ROM）**——targetSdk 35 在 Android 15 强制 edge-to-edge，而 Capacitor 的 `adjustMarginsForEdgeToEdge` 默认 `disable`：`capacitor.config.json` 改 `force`，Capacitor 给 WebView 补 systemBars+cutout 边距；键盘 insets 由 `MainActivity` 在 WebView 父容器上补（Capacitor 在 WebView 上 CONSUMED 了 ime）。状态栏/导航栏图标深浅随主题（`WindowInsetsControllerCompat`，shim 经 `__almaAndroidUi.setTheme` 上报应用内主题，系统深浅色切换由 `onConfigurationChanged` 同步）。
-3. **UI 完全无样式（老 WebView 内核，如 MIUI 14 无 Play 更新）**——renderer 主样式表依赖 Chromium 111+（`oklch()` 126 处 / `color-mix()` 1148 处 / `:has()` 19 处）。内核 85–110 时 JS 正常但配色/布局全失效（白框界面，MIUI 还会挂「网页显示异常」提示）；<85 连 `??=` 都无法解析。`alma-webview-gate.js`（**纯 ES5**，注入在所有脚本之前）检测 UA 的 Chromium 版本，低于 111 时全屏给出升级「Android System WebView」的指引（可关闭并记忆）。老设备唯一根治办法是升级系统 WebView（系统应用商店 / 系统应用更新，或侧载 WebView APK）。
+3. **UI 完全无样式（老 WebView 内核，如 MIUI 14 无 Play 更新）**——renderer 原始样式依赖 Chromium 111+（`oklch()` 126 处 / `color-mix()` 1148 处 / `:has()` 43 处 / `@property` 90 处）。本项目在构建期做兼容降级：`scripts/compat-css.js` 把 oklch 转 sRGB、`:has()` 重写成 `.alma-has-N`（映射在 `www/alma-has-rules.js`），Tailwind 4 自带的 `@property` 兜底块原样保留；`scripts/shim/alma-compat.js` 在运行时补 `:has` 类、`field-sizing` 和 inline `color-mix`。**目标下限 Chromium 100**；低于 100 时 `alma-webview-gate.js`（**纯 ES5**，注入在所有脚本之前）检测 UA 的 Chromium 版本并全屏给出升级「Android System WebView」的指引（可关闭并记忆）。内核 100–110 现在可正常显示；<100 仍需升级或侧载 WebView APK。
+
+> 兼容层只在构建期改 `www/assets/*.css` 与注入 `alma-compat.js`，不动原生壳、配对和 E2E 链路。单独 `npx cap sync android` 不会转换 CSS；升级 Alma renderer 必须走 `bash scripts/sync-assets.sh`（已内置 `node scripts/compat-css.js`）。手工重跑：`npm run compat`。
 
 ## 使用 / 配对
 

@@ -1,14 +1,13 @@
 // alma-android WebView 内核版本门槛（"UI 完全没适配"的根因兜底）。
 // 【必须保持纯 ES5】：本文件要在 Chromium <85（连 ??= 都无法解析，shim
 // 整个文件直接 SyntaxError 的设备）上也跑得起来，所以不用任何新语法。
-// Alma renderer 的样式依赖 Chromium 111+（主样式表 oklch() 126 处 /
-// color-mix() 1148 处 / :has() 19 处 / @property 90 处）。国内无 Play
-// 更新的 ROM（MIUI 等）WebView 常年停在出厂版本：JS 能跑（DOM 都渲染
-// 出来了）但配色与布局全失效 —— 表现为"白框无样式"界面，部分系统还会
-// 弹"网页显示异常"。这里在一切应用 JS 之前给出可操作的升级指引；
+// Alma renderer 原始样式依赖 Chromium 111+（oklch/color-mix/:has/@property）。
+// 本项目构建期已把 oklch -> sRGB、:has() -> .alma-has-N，并保留 Tailwind 4
+// 自带的 @property 兜底块，目标下限降到 Chromium 100。低于 100 时 @layer
+// 等基础能力也不完整，这里在一切应用 JS 之前给出可操作的升级指引；
 // 用户可关闭继续使用（记忆在 localStorage）。
 (function () {
-  var MIN = 111;
+  var MIN = 100;
   var isTop = true;
   try { isTop = !(window.parent && window.parent !== window); } catch (e) {}
   if (!isTop) return;

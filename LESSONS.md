@@ -92,3 +92,15 @@
 - **弃用 DownloadManager**（社区共识 + 实测根因）：透明代理对 GitHub 资产回 200 HTML，DownloadManager 照落盘报 SUCCESSFUL。应用内 HttpURLConnection：写盘前验状态码/Content-Type/长度，第一块数据验 zip 魔数 PK，垃圾不落盘直接换镜像；.part 原子改名；代次号 dlGen 让旧线程让位。
 - **AVD 实测事实**：api33 镜像拉起 PackageInstaller 会把 qemu 整个带崩（连崩 3 次的元凶），api30 正常——安装器全链测试用 api30；WebView localStorage 是异步落盘，force-stop 会丢，seed 后必须 location.reload() 触发提交；`cleartext` 白名单走 network_security_config（仅 10.0.2.2），本地 http.server 8808 当下载源。
 - **测试基建坑**：模拟器连环崩时把 8778 静态服务一并带走 → 一串 CDP 套件假失败（no-button/NO_FRAME），先查服务再怀疑代码；qemu 进程名是 qemu-system-x86_64，pkill "emulator" 杀不掉。
+
+## 2026-10-30 Chromium 100 兼容层：Tailwind 4 的 @property 兜底已够用，真正缺的是 oklch 与 :has
+
+- **目标**：MIUI 14 出厂 WebView（Chromium 100）不升级系统 WebView 也能正常显示。
+- **实测结论**：Tailwind 4.1.12 已在 `@layer properties` 里用 `@supports` 为不支持 `@property` 的内核写好 `--tw-*` 默认值（`--tw-border-style: solid`、`--tw-shadow: 0 0 #0000` 等），Chrome 100 上 `var(--tw-*)` 1137 处引用本来就有兜底；`color-mix()` 1147/1148 已在 `@supports (color: color-mix(...))` 内且块外有同选择器 fallback。**不要重复造 @property/color-mix 的轮子**。
+- **真正要补的**：103 个 `--color-*: oklch(...)` 变量（旧内核整条丢弃，402 处 `var(--color-*)` 失色）、43 处 `:has()`（Tailwind 没包 `@supports`，整条规则丢弃）、1 处 @supports 外的 win98 `color-mix`、`field-sizing: content`、React inline `color-mix`。
+- **实现**：`scripts/compat-css.js` 构建期 oklch→sRGB + `:has()`→`.alma-has-N`（映射 `www/alma-has-rules.js`）；`scripts/shim/alma-compat.js` 运行时补类、textarea 自适应、inline color-mix。
+- **坑**：
+  1. 构建期替换必须跳过 CSS 注释：retro 注释里的 `:has()` 曾被替换成空映射（`alma-has-12` 的 `s` 为空）。
+  2. 不要在 `CSSStyleDeclaration.prototype` 上 `defineProperty` 遮 `background`：Chrome 100 上会与原生 `getPropertyValue` 递归/卡死。正确做法是 MutationObserver 监听 `style` 属性，把属性字符串里的 `color-mix(...)` 就地替换成 `rgba(...)`（属性里保留了原始字符串，即使 computed 值已失效）。
+  3. `sync-assets.sh` 里兼容脚本必须在复制 renderer 后、注入 HTML 前跑；升级 renderer 时只跑 `npx cap sync` 不会转换 CSS。
+- **验证**：Chromium 100.0.4896 快照 headless 实测 12 条 `:has`、`field-sizing`、inline color-mix、`border`/`bg-red-500` 全绿；现代 Chrome 回归通过。

@@ -5,6 +5,7 @@
   "description": "Alma for Android — Capacitor 壳 + Alma 官方 renderer（与官方 iOS 端同构）",
   "scripts": {
     "assets": "bash scripts/sync-assets.sh",
+    "compat": "node scripts/compat-css.js",
     "android": "cap sync android && cap open android",
     "build:web": "echo 'www/ 直接使用 Alma 官方 renderer 产物，无需构建'"
   },

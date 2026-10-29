@@ -12,6 +12,11 @@ mkdir -p www
 # renderer 全量拷贝（assets/fonts/各 html 入口）
 cp -R "$SRC/." www/
 
+# ── 0. Chromium 100 兼容降级（oklch → sRGB、:has() → .alma-has-N）──
+# 必须在注入 shim 前跑：它把 www/assets/*.css 改写成旧内核可解析的形态，
+# 并生成 www/alma-has-rules.js（alma-compat.js 的运行时映射）。
+node scripts/compat-css.js
+
 # ── 1. 注入 shim（紧跟 <body>：document.body 已存在 → 首帧即手机布局） ──
 # alma-webview-gate.js 必须在最前：它是纯 ES5（Chromium <85 连本文件
 # 之外所有脚本的 ??= 都解析不了），老 WebView 上全靠它给出升级指引。
@@ -19,6 +24,7 @@ python3 - << 'PYEOF'
 import glob, re, shutil
 for src, dst in [('scripts/shim/alma-droid-shim.js', 'www/alma-droid-shim.js'),
                  ('scripts/shim/alma-webview-gate.js', 'www/alma-webview-gate.js'),
+                 ('scripts/shim/alma-compat.js', 'www/alma-compat.js'),
                  ('scripts/shim/alma-local-engine.js', 'www/alma-local-engine.js')]:
     shutil.copyfile(src, dst)
 
@@ -30,6 +36,8 @@ for p in glob.glob('www/*.html'):
     s = re.sub(r'<script>\s*// alma-android: 平台桥.*?</script>\n?', '', s, flags=re.S)
     m = re.search(r'<body[^>]*>', s)
     tags = '\n<script src="./alma-webview-gate.js"></script>' + \
+           '\n<script src="./alma-has-rules.js"></script>' + \
+           '\n<script src="./alma-compat.js"></script>' + \
            '\n<script src="./alma-droid-shim.js"></script>' + \
            '\n<script src="./alma-local-engine.js"></script>'
     if m:
