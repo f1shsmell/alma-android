@@ -33,6 +33,7 @@ const stats = {
   has: 0,
   hasSkipped: 0,
   hasEmpty: 0,
+  layers: 0,
   colorMixFallback: 0,
   colorMixFailed: 0,
 };
@@ -222,6 +223,55 @@ function rewriteHas(css, hasMap, nextId, skip) {
   return out;
 }
 
+// ── @layer 展开 ───────────────────────────────────────────────────────
+//
+// Tailwind 4 把**全部**样式包在 @layer 里（properties/theme/base/
+// components/utilities 五块，utilities 单独就占 31 万字符）。@layer 之外的
+// 顶层规则只有 @property 和少量 @supports —— 一旦内核不支持 @layer，
+// 整份 CSS 归零：变量、重置、工具类一起消失，表现为「有 DOM 没样式」
+// （原生输入框、衬线字体、图标竖排）。
+//
+// 展开成裸规则即可恢复：文件里的 layer 顺序本身就是层叠顺序，按顺序
+// 铺平后优先级与原来一致（同优先级时后者胜）。不处理 `@layer a, b;`
+// 这类只声明顺序、不带块的语句——Tailwind 产物里没有。
+
+function expandLayers(css, skip) {
+  const needle = '@layer';
+  const re = /@layer\s+[\w.-]+(?:\s*,\s*[\w.-]+)*\s*\{/g;
+  let out = '';
+  let last = 0;
+  let i = 0;
+  let blocks = 0;
+
+  while (i < css.length) {
+    re.lastIndex = i;
+    const m = re.exec(css);
+    if (!m) break;
+    if (skip && inRanges(m.index, skip)) { i = m.index + m[0].length; continue; }
+
+    const braceStart = m.index + m[0].length - 1;
+    let depth = 0;
+    let j = braceStart;
+    for (; j < css.length; j++) {
+      if (css[j] === '{') depth++;
+      else if (css[j] === '}') { depth--; if (depth === 0) { j++; break; } }
+    }
+    if (depth !== 0) break;
+
+    out += css.slice(last, m.index);
+    const body = css.slice(braceStart + 1, j - 1);
+    // 递归：layer 里还可能套 layer（@supports 内也会有）
+    out += expandLayers(body, null);
+    blocks++;
+    last = j;
+    i = j;
+  }
+
+  out += css.slice(last);
+  stats.layers += blocks;
+  return out;
+}
+
 // ── color-mix fallback（只处理 @supports 之外、且第二色是 transparent）──
 
 function buildVars(css) {
@@ -351,6 +401,9 @@ function main() {
     let css = fs.readFileSync(full, 'utf8');
     if (css.includes(MARK)) { stats.skippedFiles++; continue; }
 
+    // @layer 先展开：后续 oklch/:has/color-mix 的定位不再受 layer 包裹影响
+    css = expandLayers(css, commentRanges(css));
+
     let skip = commentRanges(css);
     css = convertOklch(css, skip);
     skip = commentRanges(css);
@@ -379,6 +432,7 @@ function main() {
     '；空参数跳过 ' + stats.hasEmpty);
   console.log('  color-mix fallback: ' + stats.colorMixFallback +
     ' 处；无法解析 ' + stats.colorMixFailed);
+  console.log('  @layer 展开: ' + stats.layers + ' 块');
 }
 
 main();

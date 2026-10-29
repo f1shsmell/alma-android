@@ -807,14 +807,14 @@
    declared layer wins, so Tailwind's `!rounded-full` (utilities layer) and
    the components-layer pill radii outrank every unlayered rule here. Rules
    appended to the `theme` layer (declared first by Tailwind) outrank both. */
-@layer theme {
+
     :root:is([data-base46-theme='win98'], [data-base46-theme='winxp'], [data-base46-theme='longhorn'], [data-base46-theme='longhorn-dark']) .prompt-submit-button,
     :root:is([data-base46-theme='win98'], [data-base46-theme='winxp'], [data-base46-theme='longhorn'], [data-base46-theme='longhorn-dark']) .prompt-submit-btn,
     :root:is([data-base46-theme='win98'], [data-base46-theme='winxp'], [data-base46-theme='longhorn'], [data-base46-theme='longhorn-dark']) .scroll-to-bottom-button {
         border-radius: 0 !important;
         background: var(--w98-surface) !important;
     }
-}
+
 /* The send button is the composer's primary action: a proper raised silver
    98 button (its pill radius is exempted for this theme in index.css — the
    layered !important there outranks the unlayered square-corner rule). */
@@ -1598,14 +1598,14 @@
    them flat silver; re-declare later in the SAME layer (this file loads
    after win98.css, later-in-layer wins among !important) with the Luna
    button face. */
-@layer theme {
+
     :root[data-base46-theme='winxp'] .prompt-submit-button,
     :root[data-base46-theme='winxp'] .prompt-submit-btn,
     :root[data-base46-theme='winxp'] .scroll-to-bottom-button {
         border-radius: 3px !important;
         background: linear-gradient(180deg, #fff, #ecebe5 86%, #d8d0c4) !important;
     }
-}
+
 :root[data-base46-theme='winxp'] .prompt-submit-button[data-slot='button'],
 :root[data-base46-theme='winxp'] .prompt-submit-btn[data-slot='button'],
 :root[data-base46-theme='winxp'] .scroll-to-bottom-button[data-slot='button'] {
@@ -2210,14 +2210,14 @@
 }
 /* Submit + scroll-to-bottom: re-declare in @layer theme (later in the same
    layer wins among !important) with the frosted Plex face. */
-@layer theme {
+
     :root[data-base46-theme='longhorn'] .prompt-submit-button,
     :root[data-base46-theme='longhorn'] .prompt-submit-btn,
     :root[data-base46-theme='longhorn'] .scroll-to-bottom-button {
         border-radius: 3px !important;
         background: linear-gradient(180deg, #f4fcfc 20%, #d7e4fb 35%) !important;
     }
-}
+
 :root[data-base46-theme='longhorn'] .prompt-submit-button[data-slot='button'],
 :root[data-base46-theme='longhorn'] .prompt-submit-btn[data-slot='button'],
 :root[data-base46-theme='longhorn'] .scroll-to-bottom-button[data-slot='button'] {
@@ -2628,14 +2628,14 @@
 }
 /* Submit + scroll-to-bottom: re-declare in @layer theme (later in the same
    layer wins among !important) with the graphite face. */
-@layer theme {
+
     :root[data-base46-theme='longhorn-dark'] .prompt-submit-button,
     :root[data-base46-theme='longhorn-dark'] .prompt-submit-btn,
     :root[data-base46-theme='longhorn-dark'] .scroll-to-bottom-button {
         border-radius: 3px !important;
         background: linear-gradient(180deg, #2e2e36 20%, #232329 35%) !important;
     }
-}
+
 :root[data-base46-theme='longhorn-dark'] .prompt-submit-button[data-slot='button'],
 :root[data-base46-theme='longhorn-dark'] .prompt-submit-btn[data-slot='button'],
 :root[data-base46-theme='longhorn-dark'] .scroll-to-bottom-button[data-slot='button'] {

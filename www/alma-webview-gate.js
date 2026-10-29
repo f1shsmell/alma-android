@@ -1,13 +1,15 @@
 // alma-android WebView 内核版本门槛（"UI 完全没适配"的根因兜底）。
 // 【必须保持纯 ES5】：本文件要在 Chromium <85（连 ??= 都无法解析，shim
 // 整个文件直接 SyntaxError 的设备）上也跑得起来，所以不用任何新语法。
-// Alma renderer 原始样式依赖 Chromium 111+（oklch/color-mix/:has/@property）。
-// 本项目构建期已把 oklch -> sRGB、:has() -> .alma-has-N，并保留 Tailwind 4
-// 自带的 @property 兜底块，目标下限降到 Chromium 100。低于 100 时 @layer
-// 等基础能力也不完整，这里在一切应用 JS 之前给出可操作的升级指引；
+// Alma renderer 原始样式依赖 Chromium 111+（oklch/color-mix/:has/@property），
+// 且 Tailwind 4 把全部样式包在 @layer 里（需 Chromium 99+）。
+// 本项目构建期已把 @layer 展开、oklch -> sRGB、:has() -> .alma-has-N，并保留
+// Tailwind 4 自带的 @property 兜底块，实测下限降到 Chromium 96
+// （Redmi K30 Pro / MIUI 13 / WebView 96.0.4664.104 验证通过）。
+// 低于 96 时这里在一切应用 JS 之前给出可操作的升级指引；
 // 用户可关闭继续使用（记忆在 localStorage）。
 (function () {
-  var MIN = 100;
+  var MIN = 96;
   var isTop = true;
   try { isTop = !(window.parent && window.parent !== window); } catch (e) {}
   if (!isTop) return;
@@ -31,7 +33,7 @@
   var L = {
     zh: {
       title: "界面无法正常显示",
-      body: "这台设备的系统浏览器内核（Android WebView）版本过低：Alma 的界面需要 Chromium " + MIN + " 或更高版本，当前是 " + (ver || "未知") + "，配色与布局无法渲染。",
+      body: "这台设备的系统浏览器内核（Android WebView）版本过低：Alma 的界面需要 Chromium " + MIN + " 或更高版本，当前是 " + (ver || "未知") + "，配色与布局可能无法完整渲染。",
       how: "请在系统「应用商店」或「设置 → 系统应用更新」里升级 Android System WebView（部分系统显示为「浏览器内核」），然后重新打开 Alma。",
       go: "仍要继续使用"
     },

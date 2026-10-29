@@ -104,3 +104,15 @@
   2. 不要在 `CSSStyleDeclaration.prototype` 上 `defineProperty` 遮 `background`：Chrome 100 上会与原生 `getPropertyValue` 递归/卡死。正确做法是 MutationObserver 监听 `style` 属性，把属性字符串里的 `color-mix(...)` 就地替换成 `rgba(...)`（属性里保留了原始字符串，即使 computed 值已失效）。
   3. `sync-assets.sh` 里兼容脚本必须在复制 renderer 后、注入 HTML 前跑；升级 renderer 时只跑 `npx cap sync` 不会转换 CSS。
 - **验证**：Chromium 100.0.4896 快照 headless 实测 12 条 `:has`、`field-sizing`、inline color-mix、`border`/`bg-red-500` 全绿；现代 Chrome 回归通过。
+
+## 2026-10-30 「还是不行」复盘：@layer 才是白框主因，我第一版判断错了
+
+- **现象**（Redmi K30 Pro / Android 12 / MIUI 13）：装上第一版兼容包后界面仍是「有 DOM 没样式」——原生输入框边框、衬线字体、图标竖排堆叠、卡片圆角全无。
+- **我错在哪**：先扫特性数量就下结论（oklch 103 个、`:has` 43 处），把 `@layer` 当成「Chromium 99+ 才需要、目标 100 用不上」而忽略；并臆测「MIUI 14 出厂 WebView 常见 100–110」。**实测这台是 WebView 96.0.4664.104**，`@layer` 直接不支持。
+- **真正根因**：Tailwind 4 把**全部**样式包进 5 个 `@layer`（utilities 独占 31 万字符），`@layer` 之外的顶层规则只有 `@property` 和少量 `@supports`。内核不认 `@layer` → 整份 CSS 归零，连 `:root` 里的 `--spacing`/`--font-sans`/`--color-*` 一起消失 → `calc(var(--spacing)*4)` 全失效。所以看起来「连 flex 都坏了」，其实 `.flex` 规则一直都在。
+- **修复**：`compat-css.js` 增加 `expandLayers()`，递归展开成裸规则（文件里的 layer 顺序就是层叠顺序，铺平后优先级一致）。必须在 oklch/`:has` 处理**之前**跑。
+- **教训**：
+  1. **别用「特性数量」代替「结构位置」判断**。`@layer` 只有 5 处，却是唯一的致命单点；1148 处 color-mix 反而无害。判断失效面要看「规则是否被包在某个可能整体失效的结构里」。
+  2. **别猜设备内核版本**。`adb shell dumpsys webviewupdate` 一行就能拿到，实测 96 与猜测 100+ 差了整整一个 `@layer`。
+  3. 症状可反推层级：**连 base 重置（`box-sizing`/`margin:0`/`font-family`）都失效**，说明不是单个属性不支持，而是整个样式表被丢弃——优先怀疑 `@layer`、`@import` 失败、或 MIME 不对。
+  4. 自检命令：`grep -c '@layer' www/assets/*.css`，转换后应只剩注释里的 4 处（retro 主题注释）。
