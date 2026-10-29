@@ -3,7 +3,8 @@
   "appName": "Alma",
   "webDir": "www",
   "android": {
-    "allowMixedContent": false
+    "allowMixedContent": false,
+    "adjustMarginsForEdgeToEdge": "force"
   },
   "server": {
     "androidScheme": "https"

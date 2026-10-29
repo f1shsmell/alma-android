@@ -9,14 +9,18 @@
         <item name="colorAccent">@color/colorAccent</item>
     </style>
 
+    <!-- windowBackground 显式对齐 renderer 底色（night 限定 #282c34）：
+         原先继承 DayNight 默认且 android:background=@null —— splash 切换到
+         WebView 首帧之间的空窗露出浅灰/白，暗色用户表现为启动白闪。 -->
     <style name="AppTheme.NoActionBar" parent="Theme.AppCompat.DayNight.NoActionBar">
         <item name="windowActionBar">false</item>
         <item name="windowNoTitle">true</item>
-        <item name="android:background">@null</item>
+        <item name="android:windowBackground">@color/launch_background</item>
     </style>
 
 
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
         <item name="android:background">@drawable/splash</item>
     </style>
+
 </resources>

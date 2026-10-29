@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 启动/窗口底色：与 renderer 主题底色一致（light #ffffff）。
+         values-night 提供 #282c34，splash、windowBackground、系统 splash（12+）
+         全部引用它，保证「冷启动 → WebView 首帧」全程同色无闪。 -->
+    <color name="launch_background">#FFFFFF</color>
+</resources>

@@ -29,13 +29,43 @@
   // ── 冷启动底色：React 挂载前用主题色打底（与官方 FOUC guard 同一缓存键）──
   // html 背景/主题变量在 CSS 与 root class 之外再垫一层内联底色，
   // 避免 body 为空时露出视口默认白底（暗色用户看到的是"白屏"的主因）。
+  // 无缓存（首装/清数据）时退回系统深浅色，不再是"没打底"。
   try {
     var raw = localStorage.getItem("alma:appearance-cache");
     var mode = raw ? (JSON.parse(raw).mode || null) : null;
-    if (mode === "dark" || mode === "light") {
-      document.documentElement.style.backgroundColor = mode === "dark" ? "#282c34" : "#ffffff";
+    if (mode !== "dark" && mode !== "light") {
+      mode = (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) ? "dark" : "light";
     }
+    document.documentElement.style.backgroundColor = mode === "dark" ? "#282c34" : "#ffffff";
   } catch (e) {}
+
+  // ── 主题工具：当前生效底色 + 上报原生（WebView 底色/系统栏图标） ──────
+  // 原生侧（MainActivity.UiBridge）持同样的 dark=#282c34 / light=#ffffff，
+  // 这里把「应用主题」（appearance-cache，可能非跟随系统）同步过去：
+  // 冷启动/重载兜底底色、edge-to-edge 下状态栏图标对比度都依赖它。
+  function resolvedThemeMode() {
+    var m = null;
+    try {
+      var raw = localStorage.getItem("alma:appearance-cache");
+      m = raw ? (JSON.parse(raw).mode || null) : null;
+    } catch (e) {}
+    return m === "dark" || m === "light" ? m : "system";
+  }
+  function pageBg(mode) {
+    var m = mode || resolvedThemeMode();
+    var dark = m === "dark" ||
+      (m !== "light" && window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+    return dark ? "#282c34" : "#ffffff";
+  }
+  function notifyNativeTheme(mode) {
+    try {
+      if (window.__almaAndroidUi && window.__almaAndroidUi.setTheme) {
+        window.__almaAndroidUi.setTheme(mode || resolvedThemeMode());
+      }
+    } catch (e) {}
+  }
+  notifyNativeTheme();
+
 
   // ── 语言：跟随系统 ────────────────────────────────────────────────
   // i18next 检测顺序 localStorage → navigator，且结果永久缓存；而 Android WebView
@@ -118,6 +148,11 @@
     root.classList.remove("light", "dark");
     root.classList.add(dark ? "dark" : "light");
     root.style.backgroundColor = dark ? "#282c34" : "#ffffff";
+    // 设置层 iframe 的兜底底色同步（打开瞬间的空窗不再闪白）
+    var f0 = settingsFrame();
+    if (f0) f0.style.background = dark ? "#282c34" : "#ffffff";
+    // 原生侧：WebView 底色 + 系统栏图标深浅
+    notifyNativeTheme(mode);
     // 与官方 FOUC 缓存同键：主文档下次冷启动直接用新主题打底
     try {
       var raw = localStorage.getItem("alma:appearance-cache");
@@ -168,8 +203,9 @@
         // 扫码相机跑在本 iframe：显式授予 camera/mic（同源本应默认放行，
         // 加上以规避个别 WebView 版本的 Permissions Policy 判定）
         f.setAttribute("allow", "camera; microphone; fullscreen");
+        // 底色跟主题走（原硬编码 #fff：暗色下每次打开设置都白闪一下）
         f.setAttribute("style",
-          "position:fixed;inset:0;width:100%;height:100%;border:0;z-index:2147483000;background:#fff");
+          "position:fixed;inset:0;width:100%;height:100%;border:0;z-index:2147483000;background:" + pageBg());
         document.body.appendChild(f);
       } else {
         f.style.display = "block";

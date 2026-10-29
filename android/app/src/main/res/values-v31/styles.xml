@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Android 12+：系统 splash 用 windowSplashScreenBackground（android:background
+         被忽略），同样对齐主题底色；图标缺省为应用图标。 -->
+    <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
+        <item name="android:background">@drawable/splash</item>
+        <item name="android:windowSplashScreenBackground">@color/launch_background</item>
+    </style>
+</resources>

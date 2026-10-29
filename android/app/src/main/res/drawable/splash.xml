@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 纯色 splash（跟随 day/night）：原 Capacitor 默认是黑底 PNG，冷启动
+     「黑闪 → 白 WebView」两头都不搭。logo 由紧随其首帧的 Alma UI 接棒。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <solid android:color="@color/launch_background" />
+</shape>
