@@ -334,11 +334,16 @@
     relKey: "alma.android.update.rel",         // 最近一次检查结果（tag/apk/fallback）
     // 2026-10 实测：gh-proxy.com 可用（资产 + raw）；旧默认 mirror.ghproxy.com 已失效
     defaultMirror: "https://gh-proxy.com/",
+    // 下载兜底镜像链（原生侧按序换：下载失败或文件无效时取下一个）。
+    // 2026-10-30 实测单一 gh-proxy 对 39MB 资产可慢至 ~15KB/s 拉不完（实机
+    // "安装包已损坏"的主因之一）→ 多备几个分散风险；latest.json 的 mirrors
+    // 字段（如有）优先生效，可在不发版的情况下远程调整。
+    mirrors: ["https://gh-proxy.com/", "https://ghfast.top/"],
     interval: 6 * 60 * 60 * 1000               // 启动静默检查限频
   };
   var updateState = { status: "idle" };
   var updateListeners = [];
-  var updateRel = null;        // { tag, apk, fallback, notes }
+  var updateRel = null;        // { tag, apk, fallback, fallbacks, notes }
   var progressTimer = 0;
   var lastProg = null;         // { t, bytes } 速度估算
   var pollFailCount = 0;       // 连续 failed 计数（广播丢失兜底）
@@ -391,6 +396,7 @@
     if (state.status !== "checking" && state.status !== "downloading") {
       lsSet(UPDATE.stateKey, JSON.stringify(state));
     }
+    try { ensureUpdatePill(); } catch (e) {}
     try {
       if (inSubframe) {
         window.parent.postMessage({ type: "alma-android-update-state", state: state }, "*");
@@ -419,6 +425,14 @@
     });
   }
 
+  function relFallbacks(apk, m) {
+    // 镜像 URL 全列表 = 前缀 + 资产直链（同款拼接，去重）
+    var list = [];
+    var add = function (u) { if (u && list.indexOf(u) < 0) list.push(u); };
+    for (var i = 0; i < UPDATE.mirrors.length; i++) add(UPDATE.mirrors[i] + apk);
+    return list;
+  }
+
   // 双源检查：GitHub API releases/latest（tag_name + apk 资产）；直连失败
   // （国内网络）→ 镜像前缀 + raw latest.json（release.sh 随仓库生成）。
   function checkLatestRelease() {
@@ -431,7 +445,8 @@
         if (/\.apk$/i.test(assets[i].name || "")) { apk = assets[i].browser_download_url; break; }
       }
       if (!rel || !rel.tag_name || !apk) throw new Error("bad-release");
-      return { tag: rel.tag_name, apk: apk, fallback: m ? m + apk : "", notes: rel.body || "" };
+      var fb = relFallbacks(apk, m);
+      return { tag: rel.tag_name, apk: apk, fallback: fb[0] || "", fallbacks: fb, notes: rel.body || "" };
     }).catch(function (e1) {
       if (!m) throw e1;
       return fetchJson(m + "https://raw.githubusercontent.com/" + UPDATE.repo + "/" + UPDATE.branch + "/latest.json", 10000)
@@ -439,7 +454,9 @@
           if (!j || !j.tag || !j.apk) throw new Error("bad-latest");
           var apk = String(j.apk).indexOf("http") === 0 ? String(j.apk)
             : "https://github.com/" + UPDATE.repo + "/releases/download/" + j.tag + "/" + j.apk;
-          return { tag: j.tag, apk: apk, fallback: m + apk, notes: j.notes || "" };
+          // latest.json 的 mirrors（完整 URL 数组，release.sh 生成）优先；没有就本地默认链
+          var fb = (j.mirrors && j.mirrors.length ? j.mirrors : relFallbacks(apk, m));
+          return { tag: j.tag, apk: apk, fallback: fb[0] || "", fallbacks: fb, notes: j.notes || "" };
         });
     });
   }
@@ -448,7 +465,11 @@
     if (triggeredByUser) broadcastUpdateState({ status: "checking", checkedAt: Date.now() });
     return checkLatestRelease().then(function (rel) {
       updateRel = rel;
-      lsSet(UPDATE.relKey, JSON.stringify({ tag: rel.tag, apk: rel.apk, fallback: rel.fallback }));
+      // notes/fallbacks 一并持久化：更新弹窗（更新内容）与重试链重启后仍可用
+      lsSet(UPDATE.relKey, JSON.stringify({
+        tag: rel.tag, apk: rel.apk, fallback: rel.fallback,
+        fallbacks: rel.fallbacks || [], notes: rel.notes || ""
+      }));
       lsSet(UPDATE.checkedKey, String(Date.now()));
       var cur = shellVersion();
       var avail = isNewer(rel.tag, cur);
@@ -530,7 +551,12 @@
       });
     }
     var r;
-    try { r = window.__almaAndroidUpdate.downloadAndInstall(updateRel.apk, updateRel.fallback || ""); }
+    try {
+      // fallback 参数 = 镜像 URL 的 JSON 数组（原生侧按序换：下载失败/文件无效）
+      var fbs = updateRel.fallbacks && updateRel.fallbacks.length
+        ? updateRel.fallbacks : (updateRel.fallback ? [updateRel.fallback] : []);
+      r = window.__almaAndroidUpdate.downloadAndInstall(updateRel.apk, JSON.stringify(fbs));
+    }
     catch (e) { r = "error"; }
     if (r !== "ok") return Promise.resolve({ success: false, error: r });
     broadcastUpdateState({ status: "downloading" });
@@ -550,11 +576,29 @@
       broadcastUpdateState({ status: "downloading" });
       pollUpdateProgress();
     } else {
-      // 启动静默检查（6h 限频；只在新版可用时露头 = 设置入口 badge）
+      // 启动静默检查（6h 限频；只在新版可用时露头 = 更新 pill + 设置页入口）
       setTimeout(function () {
         var last = parseInt(lsGet(UPDATE.checkedKey), 10) || 0;
         if (Date.now() - last >= UPDATE.interval) void doUpdateCheck(false);
       }, 4000);
+    }
+    // 恢复的终态若是 update-available，先把 pill 挂出来（不等下次检查）
+    try { ensureUpdatePill(); } catch (e) {}
+    // renderer 重渲染可能吞掉 pill / 布局变化会挪动菜单钮 —— 兜底重挂+重定位
+    var pillObs = null, pillObsTimer = 0;
+    if (window.MutationObserver) {
+      pillObs = new MutationObserver(function () {
+        if (pillObsTimer) return;
+        pillObsTimer = setTimeout(function () {
+          pillObsTimer = 0;
+          try { ensureUpdatePill(); } catch (e) {}
+        }, 250);
+      });
+      var startObs = function () {
+        if (document.body) pillObs.observe(document.body, { childList: true, subtree: true });
+        else setTimeout(startObs, 400);
+      };
+      startObs();
     }
   }
 
@@ -600,6 +644,138 @@
     },
     quit: noop, relaunch: noop
   };
+
+  // ── 更新提示 UI（仅主帧）：菜单钮旁的「更新」pill + 版本说明弹窗 ─────
+  // pill 用 position:fixed 直接挂 body、按 ⋯ 菜单钮的 rect 定位 —— 刻意
+  // 不进 React 树（renderer 重渲染会吞掉外来节点），MutationObserver 兜底
+  // 重挂。样式参考用户设计稿：深灰圆角 pill，↺-圈-上箭头 + 「更新」。
+  var UPDATE_SKIP_KEY = "alma.android.update.skippedTag";
+
+  function updatePillShouldShow() {
+    return !inSubframe
+      && updateState && updateState.status === "update-available"
+      && updateRel && updateRel.tag
+      && lsGet(UPDATE_SKIP_KEY) !== updateRel.tag;
+  }
+
+  // 左上 ⋯ 菜单钮：无 aria/文本，按几何位置找（近左上角的小图标钮）
+  function findMenuToggle() {
+    try {
+      var btns = document.querySelectorAll("button");
+      for (var i = 0; i < btns.length; i++) {
+        var r = btns[i].getBoundingClientRect();
+        if (r.width >= 20 && r.width <= 60 && r.left > -10 && r.left < 60
+          && r.top > -10 && r.top < 60 && btns[i].querySelector("svg")) return btns[i];
+      }
+    } catch (e) {}
+    return null;
+  }
+
+  function ensureUpdatePill() {
+    if (inSubframe) return;
+    var pill = document.getElementById("alma-update-pill");
+    if (!updatePillShouldShow()) { if (pill) pill.remove(); return; }
+    var toggle = findMenuToggle();
+    if (!toggle) { if (pill) pill.remove(); return; }
+    if (!pill) {
+      pill = document.createElement("button");
+      pill.id = "alma-update-pill";
+      pill.type = "button";
+      pill.setAttribute("aria-label", "update available");
+      pill.innerHTML =
+        '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor"' +
+        ' stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+        '<circle cx="12" cy="12" r="9.2"/><path d="M12 15.5V8.5m-3 3 3-3 3 3"/></svg><span>更新</span>';
+      pill.addEventListener("click", function () { showUpdateDialog(); });
+      (document.body || document.documentElement).appendChild(pill);
+    }
+    // 贴着菜单钮右侧（微微压叠），随其位置校准
+    var tr = toggle.getBoundingClientRect();
+    pill.style.cssText =
+      "position:fixed;z-index:2147482000;display:inline-flex;align-items:center;gap:4px;" +
+      "height:30px;padding:0 11px 0 9px;border:0;border-radius:9999px;cursor:pointer;" +
+      "font-size:13px;font-weight:500;letter-spacing:.2px;" +
+      "background:" + (document.documentElement.classList.contains("dark") ? "#4a4f58" : "#d8dce3") + ";" +
+      "color:" + (document.documentElement.classList.contains("dark") ? "#f2ead8" : "#3a3f47") + ";" +
+      "box-shadow:0 1px 4px rgba(0,0,0,.25);" +
+      "left:" + Math.round(tr.right - 7) + "px;top:" + Math.round(tr.top + (tr.height - 30) / 2) + "px;";
+  }
+
+  // release notes（markdown 正文）→ 弹窗用的条目列表
+  function updateNoteItems() {
+    var out = [];
+    var lines = String((updateRel && updateRel.notes) || "").split(/\r?\n/);
+    for (var i = 0; i < lines.length && out.length < 8; i++) {
+      var t = lines[i].trim().replace(/^[-*•]\s+/, "").replace(/^#+\s*/, "");
+      if (!t || t.length > 140) continue;
+      if (/^Co-Authored-By|^🤖|^\[?skip/i.test(t)) continue;
+      out.push(t);
+    }
+    return out;
+  }
+
+  function closeUpdateDialog() {
+    var d = document.getElementById("alma-update-dialog");
+    if (d) d.remove();
+  }
+
+  function showUpdateDialog() {
+    if (inSubframe || !updateRel || !updateRel.tag) return;
+    closeUpdateDialog();
+    var dark = document.documentElement.classList.contains("dark");
+    var cardBg = dark ? "#2b2f36" : "#ffffff";
+    var fg = dark ? "#eceef1" : "#2b2f36";
+    var muted = dark ? "#9aa0aa" : "#7c828c";
+    var mono = "ui-monospace,SFMono-Regular,Menlo,monospace";
+    var ver = String(updateRel.tag).replace(/^v/i, "");
+    var cur = shellVersion() || "—";
+    var items = updateNoteItems();
+    var overlay = document.createElement("div");
+    overlay.id = "alma-update-dialog";
+    overlay.style.cssText = "position:fixed;inset:0;z-index:2147482100;display:flex;" +
+      "align-items:center;justify-content:center;background:rgba(0,0,0,.52);";
+    var itemsHtml = items.length
+      ? '<div style="font-size:12px;color:' + muted + ';margin:14px 0 6px">更新内容</div>' +
+        items.map(function (t) {
+          return '<div style="display:flex;gap:8px;align-items:baseline;font-size:13.5px;color:' + fg +
+            ';line-height:1.55;margin:5px 0"><span style="flex:none;width:5px;height:5px;border-radius:50%;' +
+            'background:' + muted + ';transform:translateY(-2px)"></span><span>' + t.replace(/</g, "&lt;") + "</span></div>";
+        }).join("")
+      : "";
+    overlay.innerHTML =
+      '<div role="dialog" aria-label="软件更新" style="width:min(420px,86vw);max-height:78vh;overflow:auto;' +
+      "background:" + cardBg + ";border-radius:14px;padding:20px 22px 16px;box-shadow:0 12px 40px rgba(0,0,0,.45);\">" +
+      '<div style="font-size:18px;font-weight:700;color:' + fg + '">软件更新</div>' +
+      '<div style="font-size:13px;color:' + muted + ';margin-top:6px">发现新版本可用</div>' +
+      '<div style="font-family:' + mono + ";font-size:15px;color:" + fg + ';margin-top:12px">' +
+      cur + '<span style="color:' + muted + ';padding:0 8px">→</span>' + ver + "</div>" +
+      itemsHtml +
+      '<div style="height:1px;background:' + (dark ? "#3a3f47" : "#e4e6ea") + ';margin:16px 0 10px"></div>' +
+      '<div style="display:flex;align-items:center;gap:10px">' +
+      '<button id="alma-update-skip" type="button" style="all:unset;cursor:pointer;font-size:12.5px;color:' +
+      muted + ';margin-right:auto;padding:6px 2px">跳过此版本</button>' +
+      '<button id="alma-update-cancel" type="button" style="all:unset;cursor:pointer;font-size:13.5px;color:' +
+      fg + ';padding:7px 12px">取消</button>' +
+      '<button id="alma-update-go" type="button" style="all:unset;cursor:pointer;display:inline-flex;' +
+      'align-items:center;gap:6px;background:#3d7dff;color:#fff;font-size:13.5px;font-weight:600;' +
+      'padding:8px 16px;border-radius:9999px">' +
+      '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2"' +
+      ' stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5v11m-4-4 4 4 4-4"/>' +
+      '<path d="M4.5 19.5h15"/></svg>立即下载</button>' +
+      "</div></div>";
+    (document.body || document.documentElement).appendChild(overlay);
+    overlay.querySelector("#alma-update-skip").addEventListener("click", function () {
+      try { lsSet(UPDATE_SKIP_KEY, updateRel.tag); } catch (e) {}
+      closeUpdateDialog();
+      ensureUpdatePill();
+    });
+    overlay.querySelector("#alma-update-cancel").addEventListener("click", closeUpdateDialog);
+    overlay.querySelector("#alma-update-go").addEventListener("click", function () {
+      closeUpdateDialog();
+      void doUpdateDownload();
+    });
+    overlay.addEventListener("click", function (e) { if (e.target === overlay) closeUpdateDialog(); });
+  }
 
   // 桌面专属桥：无害降级
   window.windowControls ??= {
